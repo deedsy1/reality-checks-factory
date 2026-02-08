@@ -1,0 +1,12 @@
+# Hugo build output
+/public/
+
+# Hugo lock
+.hugo_build.lock
+
+# Python
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
