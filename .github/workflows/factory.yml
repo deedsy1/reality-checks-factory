@@ -9,41 +9,41 @@ jobs:
   generate:
     runs-on: ubuntu-22.04
     env:
+      FACTORY_ENABLED: "1"
+      FACTORY_COMMIT_MODE: "main"
+
       MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
       MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
       KIMI_MODEL: "kimi-k2.5"
       TEMPERATURE: "1"
-      MAX_OUTPUT_TOKENS: "1700"
+      MAX_OUTPUT_TOKENS: "1600"
       PAGES_PER_RUN: "10"
-      MAX_ATTEMPTS: "30"
-      SLEEP_SECONDS: "0.2"
+      MAX_ATTEMPTS: "25"
+      SLEEP_SECONDS: "0.3"
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: STOP switch
+        if: env.FACTORY_ENABLED == '0'
+        run: |
+          echo "FACTORY DISABLED — exiting."
+          exit 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Install deps
+      - run: pip install requests
+      - run: python scripts/generate_pages.py
+      - run: python scripts/quality_gates.py
+
+      - name: Commit changes
+        if: env.FACTORY_COMMIT_MODE == 'main'
         run: |
-          pip install requests
-
-      - name: Generate pages
-        run: python scripts/generate_pages.py
-
-      - name: Quality gates
-        run: python scripts/quality_gates.py
-
-      - name: Commit & push (if changes)
-        run: |
-          git config user.name "evergreen-factory-bot"
-          git config user.email "bot@users.noreply.github.com"
-          git add content/pages scripts/manifest.json
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Factory: generate batch"
-            git push
-          fi
+          git config user.name "factory-bot"
+          git config user.email "factory@users.noreply.github.com"
+          git add .
+          git commit -m "Factory run" || echo "No changes"
+          git push
