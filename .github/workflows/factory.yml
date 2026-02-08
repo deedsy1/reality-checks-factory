@@ -1,5 +1,8 @@
 name: Evergreen Factory
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -24,9 +27,7 @@ jobs:
       TEMPERATURE: "1"
       MAX_OUTPUT_TOKENS: "1600"
 
-      # 👇 This is the important line
       PAGES_PER_RUN: ${{ github.event.inputs.pages || '5' }}
-
       MAX_ATTEMPTS: "25"
       SLEEP_SECONDS: "0.3"
 
@@ -44,9 +45,14 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - run: pip install requests
-      - run: python scripts/generate_pages.py
-      - run: python scripts/quality_gates.py
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Generate pages
+        run: python scripts/generate_pages.py
+
+      - name: Quality gates
+        run: python scripts/quality_gates.py
 
       - name: Commit changes
         if: env.FACTORY_COMMIT_MODE == 'main'
@@ -54,5 +60,9 @@ jobs:
           git config user.name "factory-bot"
           git config user.email "factory@users.noreply.github.com"
           git add .
-          git commit -m "Factory run" || echo "No changes"
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Factory run"
           git push
