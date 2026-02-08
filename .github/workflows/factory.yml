@@ -2,12 +2,18 @@ name: Evergreen Factory
 
 on:
   workflow_dispatch:
+    inputs:
+      pages:
+        description: "Pages to generate this run"
+        required: false
+        default: "5"
   schedule:
     - cron: "0 3 * * 1"
 
 jobs:
   generate:
     runs-on: ubuntu-22.04
+
     env:
       FACTORY_ENABLED: "1"
       FACTORY_COMMIT_MODE: "main"
@@ -17,7 +23,10 @@ jobs:
       KIMI_MODEL: "kimi-k2.5"
       TEMPERATURE: "1"
       MAX_OUTPUT_TOKENS: "1600"
-      PAGES_PER_RUN: "10"
+
+      # 👇 This is the important line
+      PAGES_PER_RUN: ${{ github.event.inputs.pages || '5' }}
+
       MAX_ATTEMPTS: "25"
       SLEEP_SECONDS: "0.3"
 
