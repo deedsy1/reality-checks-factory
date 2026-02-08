@@ -8,21 +8,23 @@ on:
         required: true
         default: "10"
   schedule:
-    - cron: "0 3 * * 1"  # Mondays 03:00 UTC
+    - cron: "0 3 * * 1"
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
-      # Batch + cost control
       PAGES_PER_RUN: ${{ github.event.inputs.pages || '10' }}
-      MAX_OUTPUT_TOKENS: "1800"
-      TEMPERATURE: "1"
+      TITLES_PER_RUN: "50"
 
-      # Hard safety: delete invalid generated pages so a single bad output doesn't block deploy
+      # Cost controls
+      MAX_OUTPUT_TOKENS: "1600"
+      TEMPERATURE: "1"
+      SLEEP_SECONDS: "0.3"
+
       AUTO_DELETE_INVALID: "1"
 
-      # Kimi API (Moonshot)
+      # Kimi API
       MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
       MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
       KIMI_MODEL: "kimi-k2.5"
@@ -39,17 +41,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install requests pyyaml
+          pip install -r requirements.txt
 
       - name: Generate pages
         run: |
           python scripts/generate_pages.py
 
-      - name: Quality gates (auto-delete invalid if enabled)
+      - name: Quality gates (auto-delete invalid)
         run: |
           python scripts/quality_gates.py
 

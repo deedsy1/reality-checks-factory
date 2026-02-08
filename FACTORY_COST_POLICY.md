@@ -1,23 +1,24 @@
-# Factory Cost & Safety Policy (Single-site)
+# Factory Cost & Safety Policy
 
-## Defaults (keep these)
+Defaults are tuned for **quality first**, then speed.
+
+## Hard caps
 - PAGES_PER_RUN: 10
-- Schedule: weekly
-- MAX_OUTPUT_TOKENS: 1800
-- TEMPERATURE: 1 (Moonshot constraint)
-- KIMI_MODEL: kimi-k2.5
-- No web research/browsing by default
+- TITLES_PER_RUN: 50
+- MAX_OUTPUT_TOKENS: 1600–1800 (default 1600)
+- TEMPERATURE: 1 (Moonshot constraint on your account/model)
+- N: 1
+- SLEEP_SECONDS: 0.3
 
-## Hard rules
-- Do not enable internet search / tool browsing for routine pages.
-- Generate in batches (weekly) to avoid excessive deploys.
-- Keep n=1, and avoid multi-pass rewrites unless a page fails validation.
+## No web research by default
+The generator forbids web browsing and external links.
 
-## Auto-cleanup
-- AUTO_DELETE_INVALID=1 deletes invalid generated pages in `content/pages/*` so one bad output won't block the deploy.
+## Self-healing rules
+- If a page JSON is invalid: retry up to 2 times.
+- If still invalid: skip it (do not fail the whole run).
+- Quality gates can auto-delete invalid generated pages when AUTO_DELETE_INVALID=1.
 
-## When to scale
-- Increase PAGES_PER_RUN only if:
-  - Quality gates pass consistently
-  - Indexing is healthy
-  - You are not seeing repeated skip rates > 20%
+## Scaling
+Only increase PAGES_PER_RUN after you have 3 consecutive clean runs with:
+- minimal retries
+- minimal deletes
