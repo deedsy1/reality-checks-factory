@@ -1,0 +1,29 @@
+baseURL: "https://YOUR-SITE.pages.dev/"
+languageCode: "en-us"
+title: "Reality Checks"
+enableRobotsTXT: true
+
+params:
+  ads:
+    provider: "none"   # none | adsense | journey | raptive
+    adsenseClient: ""  # e.g. ca-pub-xxxxxxxx
+  factory:
+    brand: "Reality Checks"
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: true
+
+outputs:
+  home: ["HTML", "RSS"]
+  section: ["HTML", "RSS"]
+  page: ["HTML"]
+
+security:
+  funcs:
+    getenv:
+      - '^HUGO_'
+      - '^CI$'
+      - '^ADS_PROVIDER$'
+      - '^ADSENSE_CLIENT$'

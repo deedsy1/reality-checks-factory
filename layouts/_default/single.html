@@ -1,0 +1,7 @@
+{{ define "main" }}
+<article>
+  <h1>{{ .Title }}</h1>
+  {{ partial "ads.html" . }}
+  <div>{{ .Content }}</div>
+</article>
+{{ end }}

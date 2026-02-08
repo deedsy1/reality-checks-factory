@@ -1,0 +1,24 @@
+{{/* Ads are OFF by default. Toggle via params.ads.provider or env vars. */}}
+{{ $provider := .Site.Params.ads.provider | default "none" }}
+{{ $providerEnv := getenv "ADS_PROVIDER" }}
+{{ if $providerEnv }}{{ $provider = $providerEnv }}{{ end }}
+
+{{ if eq $provider "adsense" }}
+  {{ $client := .Site.Params.ads.adsenseClient | default "" }}
+  {{ $clientEnv := getenv "ADSENSE_CLIENT" }}
+  {{ if $clientEnv }}{{ $client = $clientEnv }}{{ end }}
+
+  {{ if $client }}
+    <script async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ $client }}"
+      crossorigin="anonymous"></script>
+
+    <ins class="adsbygoogle"
+      style="display:block"
+      data-ad-client="{{ $client }}"
+      data-ad-slot="0000000000"
+      data-ad-format="auto"
+      data-full-width-responsive="true"></ins>
+    <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+  {{ end }}
+{{ end }}
