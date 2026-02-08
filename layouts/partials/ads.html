@@ -1,13 +1,16 @@
-{{/* Ads are OFF by default. Toggle via params.ads.provider or env vars. */}}
+{{/* Ads are OFF by default. Uses env vars if permitted; otherwise falls back to hugo.yaml params. */}}
+
 {{ $provider := .Site.Params.ads.provider | default "none" }}
-{{ $providerEnv := getenv "ADS_PROVIDER" }}
-{{ if $providerEnv }}{{ $provider = $providerEnv }}{{ end }}
+{{ $client := .Site.Params.ads.adsenseClient | default "" }}
+
+{{/* Only try getenv if Hugo allows it (we whitelist in hugo.yaml). */}}
+{{ $envProvider := getenv "ADS_PROVIDER" }}
+{{ if $envProvider }}{{ $provider = $envProvider }}{{ end }}
+
+{{ $envClient := getenv "ADSENSE_CLIENT" }}
+{{ if $envClient }}{{ $client = $envClient }}{{ end }}
 
 {{ if eq $provider "adsense" }}
-  {{ $client := .Site.Params.ads.adsenseClient | default "" }}
-  {{ $clientEnv := getenv "ADSENSE_CLIENT" }}
-  {{ if $clientEnv }}{{ $client = $clientEnv }}{{ end }}
-
   {{ if $client }}
     <script async
       src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ $client }}"
