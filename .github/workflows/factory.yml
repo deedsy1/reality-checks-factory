@@ -21,6 +21,7 @@ jobs:
       MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
       MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
       KIMI_MODEL: "kimi-k2.5"
+      TEMPERATURE: "1"
 
       OUTPUT_DIR: "content/pages"
 
