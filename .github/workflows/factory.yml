@@ -6,7 +6,7 @@ on:
       pages:
         description: "How many pages to generate this run"
         required: true
-        default: "15"
+        default: "10"
   schedule:
     - cron: "0 3 * * 1"  # Mondays 03:00 UTC
 
@@ -14,16 +14,25 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     env:
-      PAGES_PER_RUN: ${{ github.event.inputs.pages || '15' }}
-      MAX_OUTPUT_TOKENS: "1800"
-      ADS_PROVIDER: "none"
+      PAGES_PER_RUN: ${{ github.event.inputs.pages || '10' }}
 
-      MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-      MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
+      # Cost control defaults
       KIMI_MODEL: "kimi-k2.5"
       TEMPERATURE: "1"
+      N: "1"
+      MAX_OUTPUT_TOKENS: "1800"
+      SLEEP_SECONDS: "0.6"
 
+      # Ads OFF by default
+      ADS_PROVIDER: "none"
+
+      # Kimi API
+      MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+      MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
+
+      # Paths
       OUTPUT_DIR: "content/pages"
+      MANIFEST_PATH: "scripts/manifest.json"
 
     steps:
       - uses: actions/checkout@v4
@@ -36,7 +45,7 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install requests pyyaml
+          pip install requests
 
       - name: Generate pages
         run: |
