@@ -1,19 +1,23 @@
-# Factory cost-control policy
+# Factory Cost & Safety Policy (Single-site)
 
-**Goal:** predictable spend, minimal wasted tokens, no web research unless explicitly enabled.
+## Defaults (keep these)
+- PAGES_PER_RUN: 10
+- Schedule: weekly
+- MAX_OUTPUT_TOKENS: 1800
+- TEMPERATURE: 1 (Moonshot constraint)
+- KIMI_MODEL: kimi-k2.5
+- No web research/browsing by default
 
-## Defaults (recommended)
-- Model: `kimi-k2.5`
-- Temperature: `1` (API constraint observed for this model on your account)
-- `PAGES_PER_RUN`: 10–15
-- `MAX_OUTPUT_TOKENS`: 1800 (raise to 2200 only if needed)
-- `SLEEP_SECONDS`: 0.6
+## Hard rules
+- Do not enable internet search / tool browsing for routine pages.
+- Generate in batches (weekly) to avoid excessive deploys.
+- Keep n=1, and avoid multi-pass rewrites unless a page fails validation.
 
-## Rules
-1. No web browsing by default (prompt forbids it).
-2. Batch publish weekly (avoid too many builds).
-3. Repair before retry:
-   - If output format is invalid, run a **repair** prompt (cheaper than full regeneration).
-4. Skip stubborn pages rather than fail the entire run.
-5. If you increase batch size, do it slowly:
-   - 10 → 15 → 20, only if quality gates pass consistently.
+## Auto-cleanup
+- AUTO_DELETE_INVALID=1 deletes invalid generated pages in `content/pages/*` so one bad output won't block the deploy.
+
+## When to scale
+- Increase PAGES_PER_RUN only if:
+  - Quality gates pass consistently
+  - Indexing is healthy
+  - You are not seeing repeated skip rates > 20%
