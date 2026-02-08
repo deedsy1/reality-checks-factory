@@ -1,14 +1,7 @@
-{{/* Ads are OFF by default. Uses env vars if permitted; otherwise falls back to hugo.yaml params. */}}
+{{/* Ads partial — safe for Cloudflare Pages */}}
 
 {{ $provider := .Site.Params.ads.provider | default "none" }}
 {{ $client := .Site.Params.ads.adsenseClient | default "" }}
-
-{{/* Only try getenv if Hugo allows it (we whitelist in hugo.yaml). */}}
-{{ $envProvider := getenv "ADS_PROVIDER" }}
-{{ if $envProvider }}{{ $provider = $envProvider }}{{ end }}
-
-{{ $envClient := getenv "ADSENSE_CLIENT" }}
-{{ if $envClient }}{{ $client = $envClient }}{{ end }}
 
 {{ if eq $provider "adsense" }}
   {{ if $client }}

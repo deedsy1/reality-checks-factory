@@ -20,7 +20,7 @@ outputs:
   section: ["HTML", "RSS"]
   page: ["HTML"]
 
-  security:
+security:
   funcs:
     getenv:
       - '^HUGO_'
