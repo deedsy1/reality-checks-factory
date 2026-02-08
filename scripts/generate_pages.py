@@ -15,6 +15,26 @@ N = int(os.getenv("N", "1"))
 # Real model id for K2.5:
 MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 
+def extract_json_array(text: str):
+    """
+    Extract the first JSON array from a string.
+    Handles cases where the model adds extra text or code fences.
+    """
+    if not text:
+        raise ValueError("Empty response from model")
+
+    # Strip markdown code fences if present
+    t = text.strip()
+    t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s*```$", "", t)
+
+    # Find the first [...] block
+    m = re.search(r"\[[\s\S]*\]", t)
+    if not m:
+        raise ValueError(f"No JSON array found. First 400 chars:\n{t[:400]}")
+    return json.loads(m.group(0))
+
+
 def load_manifest():
     if not os.path.exists(MANIFEST_PATH):
         return {"generated_slugs": []}
@@ -62,10 +82,16 @@ Tone: calm, reassuring, non-advisory, globally applicable.
 Avoid legal/medical/financial advice. Avoid dates, prices, and country-specific claims.
 """
 
-PROMPT_PLAN = """Generate a list of 30 evergreen page titles for the niche:
+PROMPT_PLAN = """Return ONLY a valid JSON array of 30 strings.
+No markdown, no code fences, no commentary, no bullets.
+
+Example:
+["Title 1","Title 2"]
+
+Now generate 30 evergreen page titles for:
 "Is this normal? Reality checks for work, money, burnout, and modern life."
-Return ONLY a JSON array of strings. No commentary.
 """
+
 
 PROMPT_PAGE = """Create 1 page in Markdown for the title: "{title}"
 
@@ -95,7 +121,9 @@ def main():
     existing = set(manifest.get("generated_slugs", []))
 
     titles_json = kimi_chat(SYSTEM, PROMPT_PLAN)
-    titles = json.loads(titles_json)
+    print("Planner raw response (first 400 chars):", titles_json[:400])
+    titles = extract_json_array(titles_json)
+
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
