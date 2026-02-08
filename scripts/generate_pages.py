@@ -13,9 +13,7 @@ API_KEY = os.environ["MOONSHOT_API_KEY"]
 MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 
 PAGES_PER_RUN = int(os.getenv("PAGES_PER_RUN", "10"))
-# MAX_ATTEMPTS caps total API calls (not "pages attempted"). This prevents long, expensive retry loops.
-MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "25"))
-# Per-title cap so a single stubborn title can't burn the whole run.
+MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "25"))  # caps total API calls
 MAX_RETRIES_PER_TITLE = int(os.getenv("MAX_RETRIES_PER_TITLE", "2"))
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1600"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "1"))
@@ -74,28 +72,23 @@ def load_titles():
         return [t.strip() for t in f if t.strip()]
 
 def parse_json_strict_or_extract(raw: str) -> dict:
-    """Parse strict JSON; if model wraps it, extract the first {...} block."""
     raw = raw.strip()
-
-    # Fast path: strict JSON
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
-    # Remove common wrappers like ```json ... ```
-    raw2 = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
-    raw2 = re.sub(r"\s*```$", "", raw2)
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
+    raw = re.sub(r"\s*```$", "", raw)
 
     try:
-        return json.loads(raw2)
+        return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
-    # Extract first JSON object block
     m = re.search(r"\{.*\}", raw, re.S)
     if not m:
-        raise json.JSONDecodeError("No JSON object found in model output", raw, 0)
+        raise json.JSONDecodeError("No JSON found", raw, 0)
     return json.loads(m.group(0))
 
 def call_kimi(prompt):
@@ -103,17 +96,13 @@ def call_kimi(prompt):
         "model": MODEL,
         "temperature": TEMPERATURE,
         "max_tokens": MAX_OUTPUT_TOKENS,
-
-        # IMPORTANT: ask the API to force JSON object output (if supported by model)
         "response_format": {"type": "json_object"},
-
         "messages": [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": prompt},
         ],
     }
 
-    last_err = None
     for attempt in range(3):
         r = requests.post(
             f"{BASE_URL}/chat/completions",
@@ -123,16 +112,12 @@ def call_kimi(prompt):
         )
         if r.status_code < 400:
             return r.json()["choices"][0]["message"]["content"]
-
-        # backoff on transient errors
         if r.status_code in (429, 500, 502, 503):
             time.sleep(2 ** attempt)
             continue
+        raise RuntimeError(r.text)
 
-        last_err = r.text
-        break
-
-    raise RuntimeError(last_err or "API retries exhausted")
+    raise RuntimeError("API retries exhausted")
 
 def main():
     os.makedirs(CONTENT_ROOT, exist_ok=True)
@@ -152,26 +137,22 @@ def main():
     for title in titles:
         if produced >= PAGES_PER_RUN or api_calls >= MAX_ATTEMPTS:
             break
-        slug = slugify(title)
 
+        slug = slugify(title)
         if slug in used:
             continue
 
-        # Track retries per title (by slug), so one problematic prompt doesn't waste the whole run.
         title_retries.setdefault(slug, 0)
 
         try:
             api_calls += 1
             raw = call_kimi(f"{PAGE_PROMPT}\n\nTitle: {title}")
             data = parse_json_strict_or_extract(raw)
-        except Exception as e:
+        except Exception:
             retries += 1
             title_retries[slug] += 1
-            # If this title keeps failing, skip it for the rest of the run.
             if title_retries[slug] >= MAX_RETRIES_PER_TITLE:
                 used.add(slug)
-            # optional: uncomment to see why it failed
-            # print("[RETRY]", title, "=>", str(e)[:200])
             continue
 
         body = (data.get("body_md") or "").strip()
@@ -179,26 +160,29 @@ def main():
             deletes += 1
             continue
 
-        # Ensure required keys exist
         required = ["title", "summary", "description", "hub", "page_type"]
         if any((k not in data or not str(data[k]).strip()) for k in required):
             deletes += 1
             continue
 
+        safe_title = str(data["title"]).replace('"', "'")
+        safe_summary = str(data["summary"]).replace('"', "'")
+        safe_description = str(data["description"]).replace('"', "'")
+
         page_dir = os.path.join(CONTENT_ROOT, slug)
         os.makedirs(page_dir, exist_ok=True)
 
         md = f"""---
-title: "{str(data['title']).replace('"', '\\"')}"
+title: "{safe_title}"
 slug: "{slug}"
-summary: "{str(data['summary']).replace('"', '\\"')}"
-description: "{str(data['description']).replace('"', '\\"')}"
+summary: "{safe_summary}"
+description: "{safe_description}"
 date: "{date.today().isoformat()}"
 hub: "{data['hub']}"
 page_type: "{data['page_type']}"
 ---
 
-**{str(data['summary']).replace('"', '\\"')}**
+**{safe_summary}**
 
 {body}
 """
