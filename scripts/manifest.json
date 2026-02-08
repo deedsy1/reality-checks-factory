@@ -1,5 +1,13 @@
 {
   "used_slugs": [],
-  "generated_this_run": [],
-  "template_index": 0
+  "generated_this_run": [
+    "is-it-normal-to-feel-anxious-about-performance-reviews",
+    "is-it-normal-to-feel-resentful-of-coworkers"
+  ],
+  "template_index": 0,
+  "used_titles": [
+    "is-it-normal-to-feel-anxious-about-performance-reviews",
+    "is-it-normal-to-feel-resentful-of-coworkers"
+  ],
+  "failed_titles": []
 }
