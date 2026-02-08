@@ -9,7 +9,7 @@ MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1800"))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "content/pages")
 MANIFEST_PATH = "scripts/manifest.json"
 
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.3"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "1"))
 N = int(os.getenv("N", "1"))
 
 # Real model id for K2.5:
