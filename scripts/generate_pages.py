@@ -4,16 +4,15 @@ import requests
 BASE_URL = os.getenv("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1").rstrip("/")
 API_KEY = os.environ["MOONSHOT_API_KEY"]
 
-PAGES_PER_RUN = int(os.getenv("PAGES_PER_RUN", "20"))
-MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "2200"))
+PAGES_PER_RUN = int(os.getenv("PAGES_PER_RUN", "15"))
+MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1800"))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "content/pages")
 MANIFEST_PATH = "scripts/manifest.json"
 
-# Cost control defaults
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.3"))
-N = 1
+N = int(os.getenv("N", "1"))
 
-# Model id may differ per account. Set KIMI_MODEL in env if needed.
+# Real model id for K2.5:
 MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 
 def load_manifest():
@@ -47,94 +46,80 @@ def kimi_chat(system: str, user: str) -> str:
             {"role": "user", "content": user},
         ],
     }
-    r = requests.post(url, headers=headers, json=payload, timeout=180)
-    r.raise_for_status()
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
+    if r.status_code >= 400:
+        print("Moonshot API error:", r.status_code)
+        print("Response:", r.text[:2000])
+        r.raise_for_status()
     data = r.json()
     return data["choices"][0]["message"]["content"]
 
-SYSTEM = """You generate pages for a static Hugo website.
+SYSTEM = """You are a content generator for a static Hugo website.
 NO web browsing. NO external links.
-Output MUST be a single Markdown document with YAML frontmatter at the top.
+Output MUST be a single Markdown file with Hugo YAML frontmatter at top.
 Frontmatter required: title, slug, description, date, hub, page_type.
-Tone: calm, reassuring, globally applicable, non-advisory.
-Avoid legal/medical/financial advice. Avoid prices, dates (except the frontmatter date), and country-specific rules.
+Tone: calm, reassuring, non-advisory, globally applicable.
+Avoid legal/medical/financial advice. Avoid dates, prices, and country-specific claims.
 """
 
-PROMPT_PLAN = """Generate 40 evergreen page titles for:
-\"Is this normal? Reality checks for work, money, burnout, and modern life.\"
-
-Requirements:
-- Every title must be a natural query or statement people search, e.g. "Is it normal to ..."
-- Avoid medical diagnosis, legal advice, investing advice, and anything that depends on laws.
-- Spread across the five hubs:
-  work-career, money-stress, burnout-load, milestones, social-norms
-
-Return ONLY a JSON array of objects with keys:
-- title
-- hub (one of the hubs above)
-- page_type (one of: is-it-normal, checklist, red-flags, myth-vs-reality, explainer)
-
-No commentary. No markdown.
+PROMPT_PLAN = """Generate a list of 30 evergreen page titles for the niche:
+"Is this normal? Reality checks for work, money, burnout, and modern life."
+Return ONLY a JSON array of strings. No commentary.
 """
 
 PROMPT_PAGE = """Create 1 page in Markdown for the title: "{title}"
 
-Frontmatter (YAML) REQUIRED:
-title: "{title}"
-slug: "{slug}"
-description: (140-160 chars, calm, no hype)
-date: 2026-02-08
-hub: "{hub}"
-page_type: "{page_type}"
-
-Content requirements:
-- Answer-first intro (2–4 sentences)
-- 5–8 H2 sections with practical, reassuring framing
-- Include an H2 called "Common reasons this happens"
-- Include an H2 called "When it might be a sign of a bigger issue" (no medical/legal advice; just signals to consider support)
-- Include an H2 called "Simple reality checks" with 5-9 bullet points
-- Add "FAQs" section with 6–10 Q/A pairs (use format **Q:** and **A:**)
-- Add 4–8 internal links to other pages using this format: /pages/<slug>/
-- No external links.
-- No time-sensitive claims.
+Requirements:
+- Start with YAML frontmatter exactly:
+  ---
+  title: ...
+  slug: ...
+  description: ...
+  date: 2026-02-09
+  hub: one of [work-career, money-stress, burnout-load, milestones, social-norms]
+  page_type: one of [is-it-normal, checklist, red-flags, myth-vs-reality, explainer]
+  ---
+- Then content with:
+  - Answer-first intro (2–4 sentences)
+  - 5–8 H2 sections
+  - A section "Common reasons this happens"
+  - A section "When it might be a sign of a bigger issue" (non-medical, non-legal)
+  - 6–10 FAQs (format each FAQ as **Q:** / **A:**)
+  - 3–6 internal links pointing to "/pages/<slug>/" placeholders where relevant
+- Do NOT include external links.
+- Do NOT include anything that requires updating later.
 """
 
 def main():
     manifest = load_manifest()
     existing = set(manifest.get("generated_slugs", []))
 
-    plan_raw = kimi_chat(SYSTEM, PROMPT_PLAN)
-    plan = json.loads(plan_raw)
+    titles_json = kimi_chat(SYSTEM, PROMPT_PLAN)
+    titles = json.loads(titles_json)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     generated = 0
-    for item in plan:
+    for t in titles:
         if generated >= PAGES_PER_RUN:
             break
-        title = item["title"]
-        hub = item["hub"]
-        page_type = item["page_type"]
-        slug = slugify(title)
-
+        slug = slugify(t)
         if slug in existing:
             continue
 
-        md = kimi_chat(SYSTEM, PROMPT_PAGE.format(title=title, slug=slug, hub=hub, page_type=page_type))
-
-        # Hugo page bundle for clean URLs: content/pages/<slug>/index.md
+        md = kimi_chat(SYSTEM, PROMPT_PAGE.format(title=t)).strip()
         page_dir = os.path.join(OUTPUT_DIR, slug)
         os.makedirs(page_dir, exist_ok=True)
         with open(os.path.join(page_dir, "index.md"), "w", encoding="utf-8") as f:
-            f.write(md.strip() + "\n")
+            f.write(md + "\n")
 
         existing.add(slug)
         generated += 1
-        time.sleep(1.2)  # gentle pacing to avoid rate spikes
+        time.sleep(1.2)
 
     manifest["generated_slugs"] = sorted(existing)
     save_manifest(manifest)
-    print(f"Generated {generated} pages.")
+    print(f"Generated {generated} pages using model: {MODEL}")
 
 if __name__ == "__main__":
     main()

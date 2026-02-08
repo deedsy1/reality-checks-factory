@@ -1,75 +1,58 @@
-import os, sys, zipfile, re
-from pathlib import Path
+import os, zipfile, re
+from datetime import date
+
+OUTPUT_ROOT = "content/pages"
 
 def slugify(s: str) -> str:
     s = s.lower().strip()
-    s = re.sub(r'[^a-z0-9\s-]', '', s)
-    s = re.sub(r'\s+', '-', s)
-    s = re.sub(r'-+', '-', s)
-    return s[:90].strip('-')
+    s = re.sub(r"[^a-z0-9\s-]", "", s)
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"-+", "-", s)
+    return s[:90].strip("-")
 
-def parse_frontmatter(md: str):
-    # Expect YAML frontmatter between --- ... ---
-    if not md.startswith('---'):
-        return {}, md
-    parts = md.split('---', 2)
-    if len(parts) < 3:
-        return {}, md
-    fm = parts[1].strip()
-    body = parts[2].lstrip()
-    return fm, body
+def ensure_frontmatter(md: str, fallback_title: str):
+    if md.lstrip().startswith("---"):
+        # ensure required keys exist
+        head, rest = md.split("---", 2)[1], md.split("---", 2)[2]
+        fm = head
+        def has(k): return re.search(rf"^\s*{re.escape(k)}\s*:", fm, flags=re.M) is not None
+        add=[]
+        if not has("slug"): add.append(f"slug: \"{slugify(fallback_title)}\"")
+        if not has("date"): add.append(f"date: {date.today().isoformat()}")
+        if not has("hub"): add.append("hub: work-career")
+        if not has("page_type"): add.append("page_type: explainer")
+        if add:
+            fm = fm.rstrip()+"\n" + "\n".join(add) + "\n"
+        return "---\n"+fm+"---\n"+rest.lstrip("\n")
+    else:
+        slug = slugify(fallback_title)
+        return f"""---\ntitle: \"{fallback_title}\"\nslug: \"{slug}\"\ndescription: \"\"\ndate: {date.today().isoformat()}\nhub: work-career\npage_type: explainer\n---\n\n{md.strip()}\n"""
 
 def main(zip_path: str):
-    z = zipfile.ZipFile(zip_path)
-    md_files = [n for n in z.namelist() if n.startswith('pages/') and n.endswith('.md')]
-    out_root = Path('content/pages')
-    out_root.mkdir(parents=True, exist_ok=True)
+    os.makedirs(OUTPUT_ROOT, exist_ok=True)
+    with zipfile.ZipFile(zip_path) as z:
+        names = [n for n in z.namelist() if n.startswith("pages/") and n.endswith(".md")]
+        if not names:
+            raise SystemExit("No pages/*.md files found in zip.")
+        for n in names:
+            raw = z.read(n).decode("utf-8", errors="ignore")
+            fallback_title = os.path.splitext(os.path.basename(n))[0].replace("-", " ").title()
+            md = ensure_frontmatter(raw, fallback_title)
+            # determine slug folder from url if present
+            m = re.search(r'^\s*url:\s*["\']?(/[^"\']+)["\']?\s*$', md, flags=re.M)
+            if m:
+                url = m.group(1).strip("/")
+                slug = url.split("/")[-1] if url else slugify(fallback_title)
+            else:
+                slug = slugify(fallback_title)
+            out_dir = os.path.join(OUTPUT_ROOT, slug)
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, "index.md"), "w", encoding="utf-8") as f:
+                f.write(md.strip()+"\n")
+    print(f"Imported {len(names)} pages into {OUTPUT_ROOT}/")
 
-    imported = 0
-    for name in md_files:
-        md = z.read(name).decode('utf-8', errors='ignore')
-        fm_raw, body = parse_frontmatter(md)
-        title = None
-        desc = None
-        url = None
-        # crude field extraction
-        m = re.search(r'^title:\s*"?(.+?)"?\s*$', fm_raw, flags=re.MULTILINE)
-        if m: title = m.group(1).strip().strip('"')
-        m = re.search(r'^description:\s*"?(.+?)"?\s*$', fm_raw, flags=re.MULTILINE)
-        if m: desc = m.group(1).strip().strip('"')
-        m = re.search(r'^url:\s*"?(.+?)"?\s*$', fm_raw, flags=re.MULTILINE)
-        if m: url = m.group(1).strip().strip('"')
-
-        if not title:
-            # fallback from filename
-            title = Path(name).stem.replace('-', ' ').title()
-
-        slug = slugify(title)
-        page_dir = out_root / slug
-        page_dir.mkdir(parents=True, exist_ok=True)
-
-        # Build new frontmatter compatible with factory
-        new_fm = [
-            '---',
-            f'title: "{title}"',
-            f'slug: "{slug}"',
-            f'description: "{desc or ""}"',
-            'date: 2026-02-08',
-            'hub: "social-norms"',
-            'page_type: "explainer"',
-        ]
-        if url:
-            new_fm.append(f'url: "{url}"')
-        new_fm.append('---\n')
-
-        out = '\n'.join(new_fm) + body.strip() + '\n'
-        (page_dir / 'index.md').write_text(out, encoding='utf-8')
-        imported += 1
-
-    print(f"Imported {imported} pages into content/pages/<slug>/index.md")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import sys
     if len(sys.argv) < 2:
-        print('Usage: python scripts/import_kimi_zip.py "/path/to/zip"')
-        sys.exit(2)
+        raise SystemExit("Usage: python scripts/import_kimi_zip.py <zip_path>")
     main(sys.argv[1])

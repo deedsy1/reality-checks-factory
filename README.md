@@ -7,33 +7,29 @@ Single-site factory template for the **"Is this normal?"** reassurance niche.
 - Runs quality gates (banned phrases, required structure)
 - Commits + pushes automatically (Cloudflare Pages deploys on push)
 
-## Quick start (local)
-1. Install Hugo and Python 3.11+
-2. Run a local build:
+## Local run (Windows)
+1) Install Hugo Extended, Python 3.11+, Git
+2) Start local site:
    - `hugo server`
-3. (Optional) Run generator locally:
-   - `export MOONSHOT_API_KEY="..."`
-   - `export KIMI_MODEL="..."` (optional)
-   - `export PAGES_PER_RUN=5`
+3) Generate pages locally (optional):
+   - set `MOONSHOT_API_KEY`
    - `python scripts/generate_pages.py`
    - `python scripts/quality_gates.py`
-   - `hugo`
 
 ## Deploy (Cloudflare Pages)
-- Connect this GitHub repo to Cloudflare Pages (Git integration).
-- Build command: `hugo --minify`
-- Output dir: `public`
+Connect repo using Git integration.
+Build command: `hugo --minify`
+Output directory: `public`
 
 ## Ads (OFF by default)
-- `params.ads.provider` is `none` by default.
-- When approved, set:
+- Default: `provider: none`
+- After approval, set env vars in Cloudflare Pages:
   - `ADS_PROVIDER=adsense`
-  - `ADSENSE_CLIENT=ca-pub-xxxxxxxxxxxx`
-  (either in Cloudflare Pages env vars or GitHub Actions env)
+  - `ADSENSE_CLIENT=ca-pub-...`
 
-## Factory runs
-- Manual: GitHub Actions → "Evergreen Factory" → Run workflow
+## Factory run
+- Manual: GitHub Actions → Evergreen Factory → Run workflow
 - Scheduled: weekly (see `.github/workflows/factory.yml`)
 
-## Importing an existing Kimi ZIP output
+## Importing existing Kimi ZIP output
 See `MIGRATE_FROM_KIMI_ZIP.md`.

@@ -19,11 +19,3 @@ outputs:
   home: ["HTML", "RSS"]
   section: ["HTML", "RSS"]
   page: ["HTML"]
-
-security:
-  funcs:
-    getenv:
-      - '^HUGO_'
-      - '^CI$'
-      - '^ADS_PROVIDER$'
-      - '^ADSENSE_CLIENT$'

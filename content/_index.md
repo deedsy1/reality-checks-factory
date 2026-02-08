@@ -3,7 +3,7 @@ title: "Reality Checks"
 description: "Calm, practical reassurance for work, money, burnout, and modern life."
 ---
 
-Welcome. This site is a library of **reality checks** — what’s common, what’s not, and how to think clearly about it.
+This site is a library of **reality checks** — what’s common, what’s not, and how to think clearly about it.
 
 Start with the hubs:
 - [Work & Career](/hubs/work-career/)
