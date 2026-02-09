@@ -1,0 +1,26 @@
+# Copy to scripts/site_config.yaml for a new site, then edit:
+brand: "New Site Name"
+site_slug: "new-site"
+language: "en-us"
+
+content:
+  hubs: ["hub-a", "hub-b"]
+  page_types: ["is-it-normal", "checklist"]
+  related_max: 6
+
+writing:
+  tone: "calm, reassuring, grounded"
+  forbidden_words: ["diagnose", "prescribed", "guaranteed", "sue"]
+  disclaimers:
+    - "No medical, legal, or financial advice."
+
+prompts:
+  fixed_h2_outline:
+    - "What this feeling usually means"
+    - "Common reasons"
+    - "What makes it worse"
+    - "What helps (non-advice)"
+    - "When it might signal a bigger issue"
+    - "FAQs"
+  closing_reassurance_templates:
+    - "You’re not alone in this. Small steps count."

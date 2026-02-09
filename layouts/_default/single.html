@@ -2,7 +2,6 @@
 <article class="page">
   <header class="page-header">
     <h1 class="page-title">{{ .Title }}</h1>
-
     {{ with .Params.summary }}
       <div class="lede"><strong>{{ . }}</strong></div>
     {{ end }}
@@ -12,7 +11,6 @@
     {{ .Content }}
   </div>
 
-  {{/* Optional ad slot - safe: provider defaults to none */}}
   {{ partial "ads.html" . }}
 
   {{ partial "related.html" . }}

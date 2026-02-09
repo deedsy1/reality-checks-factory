@@ -1,18 +1,78 @@
-{{/* Related checks: 3 from same hub + 3 from other hubs; only real pages */}}
+{{/* 
+  Smarter Related Links (safe + non-hallucinated)
+
+  Goals:
+  - Prefer same hub
+  - Add cross-hub diversity
+  - Avoid near-duplicate titles
+  - Link only to real pages
+  - Cap links (default 6)
+*/}}
+
+{{ $max := 6 }}
+{{ with .Site.Params.factory.relatedMax }}{{ $max = . }}{{ end }}
+
 {{ $all := where .Site.RegularPages "Section" "pages" }}
 {{ $all = where $all ".RelPermalink" "ne" .RelPermalink }}
 
 {{ $hub := .Params.hub }}
-{{ $same := first 3 (where $all "Params.hub" $hub) }}
-{{ $other := first 3 (where $all "Params.hub" "ne" $hub) }}
 
-{{ $related := $same | append $other }}
+{{/* candidate pools */}}
+{{ $samePool := where $all "Params.hub" $hub | shuffle }}
+{{ $otherPool := where $all "Params.hub" "ne" $hub | shuffle }}
 
-{{ if gt (len $related) 0 }}
+{{/* 
+  Title fingerprint: crude-but-effective duplicate filter.
+  Uses first ~6 words after stripping punctuation + common stopwords.
+*/}}
+{{ $stop := slice "a" "an" "the" "to" "and" "or" "of" "for" "with" "in" "on" "at" "is" "it" "your" "you" "about" "after" "before" "when" "why" "how" "from" "this" "that" "these" "those" "feel" "feeling" "normal" }}
+
+{{ $picked := slice }}
+{{ $seen := dict }}
+
+{{- $add := func ( $p ) -}}
+  {{- $t := lower (replaceRE `[^a-z0-9\s]` "" $p.Title) -}}
+  {{- $words := split $t " " -}}
+  {{- $kept := slice -}}
+  {{- range $words -}}
+    {{- $w := . -}}
+    {{- if and (gt (len $w) 1) (not (in $stop $w)) -}}
+      {{- $kept = $kept | append $w -}}
+    {{- end -}}
+    {{- if ge (len $kept) 6 -}}{{- break -}}{{- end -}}
+  {{- end -}}
+  {{- $fp := delimit $kept "-" -}}
+  {{- if eq $fp "" -}}{{- $fp = $p.File.Path -}}{{- end -}}
+  {{- return (dict "fp" $fp) -}}
+{{- end -}}
+
+{{/* 1) pick from same hub */}}
+{{ range $samePool }}
+  {{ if ge (len $picked) $max }}{{ break }}{{ end }}
+  {{ $meta := $add . }}
+  {{ $fp := index $meta "fp" }}
+  {{ if not (isset $seen $fp) }}
+    {{ $picked = $picked | append . }}
+    {{ $seen = merge $seen (dict $fp true) }}
+  {{ end }}
+{{ end }}
+
+{{/* 2) fill from other hubs for diversity */}}
+{{ range $otherPool }}
+  {{ if ge (len $picked) $max }}{{ break }}{{ end }}
+  {{ $meta := $add . }}
+  {{ $fp := index $meta "fp" }}
+  {{ if not (isset $seen $fp) }}
+    {{ $picked = $picked | append . }}
+    {{ $seen = merge $seen (dict $fp true) }}
+  {{ end }}
+{{ end }}
+
+{{ if gt (len $picked) 0 }}
 <section class="related">
   <h2 class="related-title">Related checks</h2>
   <div class="cards related-cards">
-    {{ range $related }}
+    {{ range $picked }}
       <a class="card" href="{{ .RelPermalink }}">
         <div class="card-title">{{ .Title }}</div>
         {{ with .Params.summary }}<div class="card-summary">{{ . }}</div>{{ end }}

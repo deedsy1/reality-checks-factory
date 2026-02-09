@@ -1,0 +1,48 @@
+brand: "Reality Checks"
+site_slug: "reality-checks"
+language: "en-us"
+
+content:
+  hubs:
+    - work-career
+    - money-stress
+    - burnout-load
+    - milestones
+    - social-norms
+  page_types:
+    - is-it-normal
+    - checklist
+    - red-flags
+    - myth-vs-reality
+    - explainer
+  related_max: 6
+
+writing:
+  tone: "calm, reassuring, grounded"
+  forbidden_words:
+    - diagnose
+    - diagnosis
+    - prescribed
+    - guaranteed
+    - sue
+    - lawsuit
+    - attorney
+    - legal advice
+    - medical advice
+    - financial advice
+  disclaimers:
+    - "No medical, legal, or financial advice."
+    - "Encourage seeking qualified help if someone feels unsafe or overwhelmed."
+
+prompts:
+  fixed_h2_outline:
+    - "What this feeling usually means"
+    - "Common reasons"
+    - "What makes it worse"
+    - "What helps (non-advice)"
+    - "When it might signal a bigger issue"
+    - "FAQs"
+  closing_reassurance_templates:
+    - "If this hit close to home, you’re not failing — you’re noticing something real. Small, steady steps count."
+    - "You don’t need to have it all figured out to be doing okay. This can be worked with, one piece at a time."
+    - "If this has been heavy lately, it makes sense. You’re allowed to go gently and ask for support."
