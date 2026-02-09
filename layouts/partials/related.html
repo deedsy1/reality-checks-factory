@@ -1,34 +1,23 @@
-{{/*
-  Related pages: safe internal linking.
-  - 3 from the same hub (if available)
-  - 3 from other hubs
-  Uses Hugo's shuffle to avoid the same set on every page.
-*/}}
-
+{{/* Related checks: 3 from same hub + 3 from other hubs; only real pages */}}
 {{ $all := where .Site.RegularPages "Section" "pages" }}
-{{ $current := .Permalink }}
+{{ $all = where $all ".RelPermalink" "ne" .RelPermalink }}
+
 {{ $hub := .Params.hub }}
+{{ $same := first 3 (where $all "Params.hub" $hub) }}
+{{ $other := first 3 (where $all "Params.hub" "ne" $hub) }}
 
-{{ $sameHub := where $all "Params.hub" $hub }}
-{{ $sameHub = where $sameHub "Permalink" "!=" $current }}
+{{ $related := $same | append $other }}
 
-{{ $other := where $all "Params.hub" "!=" $hub }}
-{{ $other = where $other "Permalink" "!=" $current }}
-
-{{ $pickSame := first 3 (shuffle $sameHub) }}
-{{ $pickOther := first 3 (shuffle $other) }}
-{{ $rel := union $pickSame $pickOther }}
-
-{{ if gt (len $rel) 0 }}
-  <section class="related" aria-label="Related checks">
-    <h2>Related checks</h2>
-    <div class="related-grid">
-      {{ range $rel }}
-        <a class="related-card" href="{{ .RelPermalink }}">
-          <div class="related-title">{{ .Title }}</div>
-          {{ with .Params.summary }}<p class="related-desc">{{ . }}</p>{{ end }}
-        </a>
-      {{ end }}
-    </div>
-  </section>
+{{ if gt (len $related) 0 }}
+<section class="related">
+  <h2 class="related-title">Related checks</h2>
+  <div class="cards related-cards">
+    {{ range $related }}
+      <a class="card" href="{{ .RelPermalink }}">
+        <div class="card-title">{{ .Title }}</div>
+        {{ with .Params.summary }}<div class="card-summary">{{ . }}</div>{{ end }}
+      </a>
+    {{ end }}
+  </div>
+</section>
 {{ end }}

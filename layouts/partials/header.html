@@ -1,30 +1,38 @@
 <header class="site-header">
-  <div class="container header-inner">
+  <div class="header-inner">
     <a class="brand" href="/">{{ .Site.Title }}</a>
 
-    <nav class="nav">
-      <a class="nav-link" href="/hubs/">Hubs</a>
+    <div class="header-actions">
       <button
+        id="themeToggle"
         class="theme-toggle"
         type="button"
         aria-label="Toggle dark mode"
-        onclick="window.__toggleTheme && window.__toggleTheme()"
+        title="Toggle dark mode"
       >
-        <span class="theme-toggle__icon" aria-hidden="true">◐</span>
-        <span class="theme-toggle__text">Theme</span>
+        <span class="theme-icon" aria-hidden="true">◐</span>
       </button>
-    </nav>
+    </div>
   </div>
-</header>
 
-<script>
-  // tiny theme toggle: toggles data-theme on <html> and persists to localStorage
-  window.__toggleTheme = function () {
-    try {
-      var current = document.documentElement.getAttribute('data-theme') || 'light';
-      var next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('theme', next);
-    } catch (e) {}
-  };
-</script>
+  <script>
+    (function () {
+      var btn = document.getElementById("themeToggle");
+      if (!btn) return;
+
+      function setIcon() {
+        var t = document.documentElement.getAttribute("data-theme");
+        btn.setAttribute("aria-label", t === "dark" ? "Switch to light mode" : "Switch to dark mode");
+      }
+      setIcon();
+
+      btn.addEventListener("click", function () {
+        var current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+        var next = current === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        try { localStorage.setItem("theme", next); } catch (e) {}
+        setIcon();
+      });
+    })();
+  </script>
+</header>

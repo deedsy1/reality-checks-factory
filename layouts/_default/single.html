@@ -1,29 +1,20 @@
 {{ define "main" }}
-<div class="content-grid">
-  <article class="content">
-    <h1>{{ .Title }}</h1>
+<article class="page">
+  <header class="page-header">
+    <h1 class="page-title">{{ .Title }}</h1>
 
     {{ with .Params.summary }}
-      <p class="summary-lede">{{ . }}</p>
+      <div class="lede"><strong>{{ . }}</strong></div>
     {{ end }}
+  </header>
 
-    {{ partial "ads.html" . }}
+  <div class="page-body content">
+    {{ .Content }}
+  </div>
 
-    <div class="prose">
-      {{ .Content }}
-    </div>
+  {{/* Optional ad slot - safe: provider defaults to none */}}
+  {{ partial "ads.html" . }}
 
-    {{ partial "related.html" . }}
-  </article>
-
-  <aside class="toc" aria-label="On this page">
-    {{ $toc := .TableOfContents }}
-    {{ if and $toc (ne $toc "") }}
-      <div class="toc-inner">
-        <div class="toc-title">On this page</div>
-        {{ $toc }}
-      </div>
-    {{ end }}
-  </aside>
-</div>
+  {{ partial "related.html" . }}
+</article>
 {{ end }}

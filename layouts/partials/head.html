@@ -1,45 +1,37 @@
-{{/*
-  Head partial: production-ready basics
-  - Typography + layout via /css/site.css
-  - Dark mode via data-theme on <html>
-  - Meta description prefers .Params.description, then .Params.summary
-*/}}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-
-<title>{{ if .Title }}{{ .Title }} | {{ end }}{{ .Site.Title }}</title>
-
-{{/* Meta description */}}
-{{ $desc := "" }}
-{{ with .Params.description }}{{ $desc = . }}{{ end }}
-{{ if and (not $desc) (.Params.summary) }}{{ $desc = .Params.summary }}{{ end }}
-{{ if $desc }}<meta name="description" content="{{ $desc }}" />{{ end }}
-
-{{/* Canonical */}}
-{{ with .Permalink }}<link rel="canonical" href="{{ . }}" />{{ end }}
-
-{{/* OpenGraph (minimal) */}}
-<meta property="og:site_name" content="{{ .Site.Title }}" />
-<meta property="og:type" content="{{ if .IsHome }}website{{ else }}article{{ end }}" />
-<meta property="og:title" content="{{ if .Title }}{{ .Title }}{{ else }}{{ .Site.Title }}{{ end }}" />
-{{ if $desc }}<meta property="og:description" content="{{ $desc }}" />{{ end }}
-<meta property="og:url" content="{{ .Permalink }}" />
-
-{{/* Theme-color for browsers */}}
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#0b0f17" media="(prefers-color-scheme: dark)" />
-
-{{/* Early theme init (prevents flash) */}}
+{{/* Prevent theme flash: set data-theme before CSS paints */}}
 <script>
   (function () {
     try {
-      var saved = localStorage.getItem('theme');
-      var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      var theme = saved ? saved : (prefersDark ? 'dark' : 'light');
-      document.documentElement.setAttribute('data-theme', theme);
+      var saved = localStorage.getItem("theme");
+      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var theme = saved || (prefersDark ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
     } catch (e) {}
   })();
 </script>
 
-<link rel="stylesheet" href="/css/site.css" />
+<title>{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }} · {{ .Site.Title }}{{ end }}</title>
+
+{{ $desc := "" }}
+{{ with .Params.description }}{{ $desc = . }}{{ end }}
+{{ if not $desc }}
+  {{ with .Params.summary }}{{ $desc = . }}{{ end }}
+{{ end }}
+{{ if not $desc }}
+  {{ with .Site.Params.factory.brand }}{{ $desc = printf "%s: calm, practical reassurance — not advice." . }}{{ end }}
+{{ end }}
+{{ if not $desc }}{{ $desc = "Calm, practical reassurance — not advice." }}{{ end }}
+
+<meta name="description" content="{{ $desc }}">
+<meta name="robots" content="index,follow">
+
+{{/* OpenGraph basics */}}
+<meta property="og:title" content="{{ if .IsHome }}{{ .Site.Title }}{{ else }}{{ .Title }}{{ end }}">
+<meta property="og:description" content="{{ $desc }}">
+<meta property="og:type" content="{{ if .IsHome }}website{{ else }}article{{ end }}">
+{{ with .Permalink }}<meta property="og:url" content="{{ . }}">{{ end }}
+
+<link rel="stylesheet" href="/css/site.css">
