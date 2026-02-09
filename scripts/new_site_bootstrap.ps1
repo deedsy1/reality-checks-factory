@@ -1,4 +1,3 @@
-\
 param(
   [Parameter(Mandatory=$true)][string]$SiteTitle,
   [Parameter(Mandatory=$true)][string]$BaseUrl,
@@ -31,19 +30,32 @@ if (Test-Path $hugoPath) {
   Write-Host "WARN: hugo.yaml not found" -ForegroundColor Yellow
 }
 
-# 2) Update scripts/site_config.yaml
-$configPath = "scripts/site_config.yaml"
-if (Test-Path $configPath) {
-  $cfg = Get-Content $configPath -Raw
+# 2) Update data/site.yaml (single source of truth)
+$dataPath = "data/site.yaml"
+if (Test-Path $dataPath) {
+  $cfg = Get-Content $dataPath -Raw
 
   $cfg = $cfg -replace '(?m)^\s*title:\s*".*"$', ('  title: "' + $SiteTitle + '"')
   $cfg = $cfg -replace '(?m)^\s*brand:\s*".*"$', ('  brand: "' + $Brand + '"')
   $cfg = $cfg -replace '(?m)^\s*base_url:\s*".*"$', ('  base_url: "' + $BaseUrl + '"')
 
-  Set-Content -Path $configPath -Value $cfg -Encoding UTF8
-  Write-Host "Updated scripts/site_config.yaml" -ForegroundColor Green
+  Set-Content -Path $dataPath -Value $cfg -Encoding UTF8
+  Write-Host "Updated data/site.yaml" -ForegroundColor Green
 } else {
-  Write-Host "WARN: scripts/site_config.yaml not found" -ForegroundColor Yellow
+  Write-Host "WARN: data/site.yaml not found" -ForegroundColor Yellow
+}
+
+# 2b) Back-compat: also update scripts/site_config.yaml if present (deprecated)
+$configPath = "scripts/site_config.yaml"
+if (Test-Path $configPath) {
+  $cfg2 = Get-Content $configPath -Raw
+
+  $cfg2 = $cfg2 -replace '(?m)^\s*title:\s*".*"$', ('  title: "' + $SiteTitle + '"')
+  $cfg2 = $cfg2 -replace '(?m)^\s*brand:\s*".*"$', ('  brand: "' + $Brand + '"')
+  $cfg2 = $cfg2 -replace '(?m)^\s*base_url:\s*".*"$', ('  base_url: "' + $BaseUrl + '"')
+
+  Set-Content -Path $configPath -Value $cfg2 -Encoding UTF8
+  Write-Host "Updated scripts/site_config.yaml (deprecated)" -ForegroundColor DarkYellow
 }
 
 # 3) Reset manifest

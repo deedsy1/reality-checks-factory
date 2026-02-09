@@ -1,5 +1,5 @@
-# Site Config (template)
-# Copy this file to scripts/site_config.yaml in a new site repo and edit values.
+# DEPRECATED: site config now lives in data/site.yaml (single contract).
+# This file remains for backward compatibility / reference.
 site:
   # Used for UI + meta defaults
   title: "Reality Checks"

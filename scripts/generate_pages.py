@@ -22,12 +22,24 @@ SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "0.3"))
 CONTENT_ROOT = "content/pages"
 MANIFEST_PATH = "scripts/manifest.json"
 TITLES_POOL_PATH = "scripts/titles_pool.txt"
-SITE_CONFIG_PATH = os.getenv("SITE_CONFIG", "scripts/site_config.yaml")
+SITE_CONFIG_PATH = os.getenv("SITE_CONFIG", "data/site.yaml")
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
     "Content-Type": "application/json",
 }
+
+def resolve_site_config_path() -> str:
+    """Prefer the single contract at data/site.yaml.
+    Backward compatible: fall back to scripts/site_config.yaml if needed.
+    """
+    p = SITE_CONFIG_PATH
+    if os.path.isfile(p):
+        return p
+    fallback = "scripts/site_config.yaml"
+    if os.path.isfile(fallback):
+        return fallback
+    raise FileNotFoundError(f"Site config not found: {p} (and no {fallback} fallback)")
 
 def load_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
@@ -177,7 +189,7 @@ def choose_close(data: dict, cfg: dict) -> str:
     return "If this hit close to home, you’re not alone — and you’re not failing."
 
 def main():
-    cfg = load_yaml(SITE_CONFIG_PATH) if os.path.exists(SITE_CONFIG_PATH) else {}
+    cfg = load_yaml(resolve_site_config_path()) if os.path.exists(SITE_CONFIG_PATH) else {}
     system, page_prompt = build_prompts(cfg)
 
     os.makedirs(CONTENT_ROOT, exist_ok=True)
