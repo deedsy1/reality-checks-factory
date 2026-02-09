@@ -1,5 +1,10 @@
 <!DOCTYPE html>
-<html lang="{{ .Site.LanguageCode | default "en" }}" data-theme="light">
+{{/* Determine theme pack: data/site.yaml > site params > default */}}
+{{ $pack := "calm-paper" }}
+{{ with site.Params.theme }}{{ with .pack }}{{ $pack = . }}{{ end }}{{ end }}
+{{ with site.Data.site }}{{ with .theme }}{{ with .pack }}{{ $pack = . }}{{ end }}{{ end }}{{ end }}
+
+<html lang="{{ .Site.Language.Lang | default "en" }}" data-theme="light" data-pack="{{ $pack }}">
 <head>
   {{ partial "head.html" . }}
 </head>

@@ -1,26 +1,79 @@
-# Copy to scripts/site_config.yaml for a new site, then edit:
-brand: "New Site Name"
-site_slug: "new-site"
-language: "en-us"
+# Site Config (template)
+# Copy this file to scripts/site_config.yaml in a new site repo and edit values.
+site:
+  # Used for UI + meta defaults
+  title: "Reality Checks"
+  brand: "Reality Checks"
+  language_code: "en-us"
 
-content:
-  hubs: ["hub-a", "hub-b"]
-  page_types: ["is-it-normal", "checklist"]
-  related_max: 6
+  # Your canonical URL (Cloudflare Pages or custom domain)
+  base_url: "https://YOUR-SITE.pages.dev/"
 
-writing:
-  tone: "calm, reassuring, grounded"
-  forbidden_words: ["diagnose", "prescribed", "guaranteed", "sue"]
-  disclaimers:
-    - "No medical, legal, or financial advice."
+  # Used in global meta if a page is missing description
+  default_meta_description: "Calm, practical reassurance — not advice."
 
-prompts:
-  fixed_h2_outline:
+theme:
+  # Fonts: keep it web-safe by default; you can use Google Fonts in layouts/partials/head.html if you prefer
+  font_sans: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif"
+  font_serif: "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"
+  content_max: "74ch"
+  radius: "16px"
+
+taxonomy:
+  # Hubs control category pages + internal linking prioritization
+  hubs:
+    - id: "work-career"
+      label: "Work & Career"
+    - id: "money-stress"
+      label: "Money & Stress"
+    - id: "burnout-load"
+      label: "Burnout & Load"
+    - id: "milestones"
+      label: "Milestones"
+    - id: "social-norms"
+      label: "Social Norms"
+
+generation:
+  # Model behavior guardrails
+  no_advice_notice: "NO medical, legal, or financial advice."
+  forbidden_words:
+    - diagnose
+    - diagnosis
+    - prescribed
+    - guaranteed
+    - sue
+
+  # Page types you want in this site
+  page_types:
+    - is-it-normal
+    - checklist
+    - red-flags
+    - myth-vs-reality
+    - explainer
+
+  # Fixed outline headings (must match quality gate expectations)
+  outline_h2:
     - "What this feeling usually means"
     - "Common reasons"
     - "What makes it worse"
     - "What helps (non-advice)"
     - "When it might signal a bigger issue"
     - "FAQs"
+
+  # Closing reassurance: appended after the body
   closing_reassurance_templates:
-    - "You’re not alone in this. Small steps count."
+    - "If this is hitting a nerve, you're not alone — and you don't have to have it all figured out today."
+    - "You're not failing for feeling this. Start small, be kind to yourself, and keep it simple."
+    - "It's okay if this takes time. Tiny changes count more than perfect plans."
+
+internal_linking:
+  enabled: true
+  # Prefer same hub links first
+  same_hub_first: 3
+  # Then fill with links from other hubs
+  other_hubs_fill: 3
+
+ads:
+  # Off by default; flip in hugo.yaml or env later
+  provider: "none"   # none | adsense | journey | raptive
+  adsense_client: "" # e.g. ca-pub-xxxxxxxx
