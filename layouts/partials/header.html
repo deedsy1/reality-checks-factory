@@ -1,8 +1,30 @@
-<header style="border-bottom: 1px solid #eee; padding: 14px 0;">
-  <div style="max-width: 900px; margin: 0 auto; padding: 0 24px;">
-    <a href="/" style="text-decoration:none; font-weight:700;">{{ .Site.Title }}</a>
-    <nav style="float:right;">
-      <a href="/hubs/" style="margin-left:12px;">Hubs</a>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/">{{ .Site.Title }}</a>
+
+    <nav class="nav">
+      <a class="nav-link" href="/hubs/">Hubs</a>
+      <button
+        class="theme-toggle"
+        type="button"
+        aria-label="Toggle dark mode"
+        onclick="window.__toggleTheme && window.__toggleTheme()"
+      >
+        <span class="theme-toggle__icon" aria-hidden="true">◐</span>
+        <span class="theme-toggle__text">Theme</span>
+      </button>
     </nav>
   </div>
 </header>
+
+<script>
+  // tiny theme toggle: toggles data-theme on <html> and persists to localStorage
+  window.__toggleTheme = function () {
+    try {
+      var current = document.documentElement.getAttribute('data-theme') || 'light';
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+    } catch (e) {}
+  };
+</script>

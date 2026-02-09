@@ -13,13 +13,7 @@ API_KEY = os.environ["MOONSHOT_API_KEY"]
 MODEL = os.getenv("KIMI_MODEL", "kimi-k2.5")
 
 PAGES_PER_RUN = int(os.getenv("PAGES_PER_RUN", "10"))
-
-# Cap total API calls per run (prevents "3 pages took 12 minutes" disasters)
-MAX_API_CALLS = int(os.getenv("MAX_ATTEMPTS", "25"))
-
-# Cap retries per title (prevents one stubborn title burning the whole run)
-MAX_RETRIES_PER_TITLE = int(os.getenv("MAX_RETRIES_PER_TITLE", "2"))
-
+MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "25"))
 MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "1600"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "1"))
 SLEEP_SECONDS = float(os.getenv("SLEEP_SECONDS", "0.3"))
@@ -56,34 +50,15 @@ Use these H2 sections exactly:
 ## FAQs
 """
 
-def ensure_manifest_schema(m: dict) -> dict:
-    """Self-heal manifest structure so old/partial manifests never break runs."""
-    if not isinstance(m, dict):
-        m = {}
-    if "used_titles" not in m or not isinstance(m.get("used_titles"), list):
-        m["used_titles"] = []
-    if "generated_this_run" not in m or not isinstance(m.get("generated_this_run"), list):
-        m["generated_this_run"] = []
-    if "failed_titles" not in m or not isinstance(m.get("failed_titles"), list):
-        m["failed_titles"] = []
-    return m
-
 def load_manifest():
     if not os.path.exists(MANIFEST_PATH):
-        return ensure_manifest_schema({})
-    try:
-        with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
-            return ensure_manifest_schema(json.load(f))
-    except Exception:
-        # If the file is corrupted, recover gracefully
-        return ensure_manifest_schema({})
+        return {"used_titles": [], "generated_this_run": []}
+    with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def save_manifest(m):
-    # Atomic write prevents half-written JSON in CI
-    tmp_path = MANIFEST_PATH + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with open(MANIFEST_PATH, "w", encoding="utf-8") as f:
         json.dump(m, f, indent=2)
-    os.replace(tmp_path, MANIFEST_PATH)
 
 def slugify(s):
     s = s.lower().strip()
@@ -96,15 +71,16 @@ def load_titles():
         return [t.strip() for t in f if t.strip()]
 
 def parse_json_strict_or_extract(raw: str) -> dict:
-    raw = (raw or "").strip()
+    """Parse strict JSON; if model wraps it, extract the first {...} block."""
+    raw = raw.strip()
 
-    # Strict JSON first
+    # Fast path: strict JSON
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
 
-    # Strip common code fences
+    # Remove common wrappers like ```json ... ```
     raw2 = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.I)
     raw2 = re.sub(r"\s*```$", "", raw2)
 
@@ -119,12 +95,15 @@ def parse_json_strict_or_extract(raw: str) -> dict:
         raise json.JSONDecodeError("No JSON object found in model output", raw, 0)
     return json.loads(m.group(0))
 
-def call_kimi(prompt: str) -> str:
+def call_kimi(prompt):
     payload = {
         "model": MODEL,
         "temperature": TEMPERATURE,
         "max_tokens": MAX_OUTPUT_TOKENS,
+
+        # IMPORTANT: ask the API to force JSON object output (if supported by model)
         "response_format": {"type": "json_object"},
+
         "messages": [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": prompt},
@@ -142,6 +121,7 @@ def call_kimi(prompt: str) -> str:
         if r.status_code < 400:
             return r.json()["choices"][0]["message"]["content"]
 
+        # backoff on transient errors
         if r.status_code in (429, 500, 502, 503):
             time.sleep(2 ** attempt)
             continue
@@ -153,86 +133,62 @@ def call_kimi(prompt: str) -> str:
 
 def main():
     os.makedirs(CONTENT_ROOT, exist_ok=True)
-
     manifest = load_manifest()
-    manifest["generated_this_run"] = []  # reset each run
-
     titles = load_titles()
     random.shuffle(titles)
 
     produced = 0
-    api_calls = 0
+    attempts = 0
     retries = 0
     deletes = 0
 
+    manifest["generated_this_run"] = []
     used = set(manifest.get("used_titles", []))
-    per_title_retries = {}
 
     for title in titles:
-        if produced >= PAGES_PER_RUN or api_calls >= MAX_API_CALLS:
+        if produced >= PAGES_PER_RUN or attempts >= MAX_ATTEMPTS:
             break
 
+        attempts += 1
         slug = slugify(title)
+
         if slug in used:
             continue
 
-        per_title_retries.setdefault(slug, 0)
-
-        # Call model
         try:
-            api_calls += 1
             raw = call_kimi(f"{PAGE_PROMPT}\n\nTitle: {title}")
             data = parse_json_strict_or_extract(raw)
-        except Exception:
+        except Exception as e:
             retries += 1
-            per_title_retries[slug] += 1
-            if per_title_retries[slug] >= MAX_RETRIES_PER_TITLE:
-                # blacklist this title for future runs
-                used.add(slug)
-                manifest["used_titles"].append(slug)
-                manifest["failed_titles"].append(slug)
+            # optional: uncomment to see why it failed
+            # print("[RETRY]", title, "=>", str(e)[:200])
             continue
 
-        # Validate output
         body = (data.get("body_md") or "").strip()
         if body.count("## ") < 6:
             deletes += 1
-            per_title_retries[slug] += 1
-            if per_title_retries[slug] >= MAX_RETRIES_PER_TITLE:
-                used.add(slug)
-                manifest["used_titles"].append(slug)
-                manifest["failed_titles"].append(slug)
             continue
 
+        # Ensure required keys exist
         required = ["title", "summary", "description", "hub", "page_type"]
         if any((k not in data or not str(data[k]).strip()) for k in required):
             deletes += 1
-            per_title_retries[slug] += 1
-            if per_title_retries[slug] >= MAX_RETRIES_PER_TITLE:
-                used.add(slug)
-                manifest["used_titles"].append(slug)
-                manifest["failed_titles"].append(slug)
             continue
-
-        # Safe strings for YAML
-        safe_title = str(data["title"]).replace('"', "'").strip()
-        safe_summary = str(data["summary"]).replace('"', "'").strip()
-        safe_description = str(data["description"]).replace('"', "'").strip()
 
         page_dir = os.path.join(CONTENT_ROOT, slug)
         os.makedirs(page_dir, exist_ok=True)
 
         md = f"""---
-title: "{safe_title}"
+title: "{str(data['title']).replace('"', '\\"')}"
 slug: "{slug}"
-summary: "{safe_summary}"
-description: "{safe_description}"
+summary: "{str(data['summary']).replace('"', '\\"')}"
+description: "{str(data['description']).replace('"', '\\"')}"
 date: "{date.today().isoformat()}"
 hub: "{data['hub']}"
 page_type: "{data['page_type']}"
 ---
 
-**{safe_summary}**
+**{str(data['summary']).replace('"', '\\"')}**
 
 {body}
 """
@@ -242,18 +198,16 @@ page_type: "{data['page_type']}"
 
         produced += 1
         used.add(slug)
-
         manifest["used_titles"].append(slug)
         manifest["generated_this_run"].append(slug)
-
         time.sleep(SLEEP_SECONDS)
 
     save_manifest(manifest)
 
     duration = int(time.time() - START_TIME)
     print("\n===== FACTORY SUMMARY =====")
-    print(f"API calls: {api_calls} (cap {MAX_API_CALLS})")
-    print(f"Pages produced: {produced} (target {PAGES_PER_RUN})")
+    print(f"Pages attempted: {attempts}")
+    print(f"Pages produced: {produced}")
     print(f"Retries: {retries}")
     print(f"Deletes: {deletes}")
     print(f"Duration: {duration // 60}m {duration % 60}s")

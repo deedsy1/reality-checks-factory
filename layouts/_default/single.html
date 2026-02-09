@@ -1,7 +1,29 @@
 {{ define "main" }}
-<article>
-  <h1>{{ .Title }}</h1>
-  {{ partial "ads.html" . }}
-  <div>{{ .Content }}</div>
-</article>
+<div class="content-grid">
+  <article class="content">
+    <h1>{{ .Title }}</h1>
+
+    {{ with .Params.summary }}
+      <p class="summary-lede">{{ . }}</p>
+    {{ end }}
+
+    {{ partial "ads.html" . }}
+
+    <div class="prose">
+      {{ .Content }}
+    </div>
+
+    {{ partial "related.html" . }}
+  </article>
+
+  <aside class="toc" aria-label="On this page">
+    {{ $toc := .TableOfContents }}
+    {{ if and $toc (ne $toc "") }}
+      <div class="toc-inner">
+        <div class="toc-title">On this page</div>
+        {{ $toc }}
+      </div>
+    {{ end }}
+  </aside>
+</div>
 {{ end }}
