@@ -10,8 +10,30 @@ on:
         description: "Pages to generate this run"
         required: false
         default: "5"
+      mode:
+        description: "generate or regen"
+        required: false
+        default: "generate"
+      regen_rule:
+        description: "e.g. version_lt:2 or contract_mismatch"
+        required: false
+        default: ""
+      regen_hub:
+        description: "Regenerate pages in this hub"
+        required: false
+        default: ""
+      regen_slugs:
+        description: "Comma-separated slugs to regenerate"
+        required: false
+        default: ""
+      gen_version:
+        description: "Generator version to stamp into pages"
+        required: false
+        default: "2"
   schedule:
     - cron: "0 3 * * 1"
+  repository_dispatch:
+    types: [factory_run, factory_regen]
 
 jobs:
   generate:
@@ -27,9 +49,17 @@ jobs:
       TEMPERATURE: "1"
       MAX_OUTPUT_TOKENS: "1600"
 
-      PAGES_PER_RUN: ${{ github.event.inputs.pages || '5' }}
+      PAGES_PER_RUN: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.pages) || (github.event_name == 'workflow_dispatch' && inputs.pages) || '5' }}
       MAX_ATTEMPTS: "25"
       SLEEP_SECONDS: "0.3"
+
+      FACTORY_MODE: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.mode) || (github.event_name == 'workflow_dispatch' && inputs.mode) || 'generate' }}
+      REGEN_RULE: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.regen_rule) || (github.event_name == 'workflow_dispatch' && inputs.regen_rule) || '' }}
+      REGEN_HUB: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.regen_hub) || (github.event_name == 'workflow_dispatch' && inputs.regen_hub) || '' }}
+      REGEN_SLUGS: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.regen_slugs) || (github.event_name == 'workflow_dispatch' && inputs.regen_slugs) || '' }}
+      GEN_VERSION: ${{ (github.event_name == 'repository_dispatch' && github.event.client_payload.gen_version) || (github.event_name == 'workflow_dispatch' && inputs.gen_version) || '2' }}
+      BACKFILL_METADATA: "1"
+
 
     steps:
       - uses: actions/checkout@v4

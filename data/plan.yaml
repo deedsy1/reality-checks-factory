@@ -1,0 +1,15 @@
+# Content plan / queue for idempotent generation.
+#
+# Generator behavior:
+# - Consumes up to PAGES_PER_RUN items with status: todo
+# - Writes content/pages/<slug>/index.md
+# - Marks items as status: done (and sets generated_date)
+#
+# You can pre-fill hub/page_type to pin classification, or omit them to let the model choose.
+
+items:
+  - title: "Example: Is it normal to feel anxious before a big trip?"
+    slug: "is-it-normal-to-feel-anxious-before-a-big-trip"
+    hub: "work-career"   # optional
+    page_type: "is-it-normal"  # optional
+    status: "todo"       # todo | done

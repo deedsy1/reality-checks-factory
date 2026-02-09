@@ -81,3 +81,17 @@ ads:
   # Off by default; flip in hugo.yaml or env later
   provider: "none"   # none | adsense | journey | raptive
   adsense_client: "" # e.g. ca-pub-xxxxxxxx
+
+gates:
+  required_frontmatter:
+    - title
+    - slug
+    - summary
+    - description
+    - date
+    - hub
+    - page_type
+    - gen_version
+    - contract_hash
+    - prompt_hash
+  allow_extra_h2: false

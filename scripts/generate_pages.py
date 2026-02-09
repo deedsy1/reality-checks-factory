@@ -3,6 +3,7 @@ import json
 import time
 import re
 import random
+import hashlib
 import requests
 from datetime import date
 import yaml
@@ -23,6 +24,17 @@ CONTENT_ROOT = "content/pages"
 MANIFEST_PATH = "scripts/manifest.json"
 TITLES_POOL_PATH = "scripts/titles_pool.txt"
 SITE_CONFIG_PATH = os.getenv("SITE_CONFIG", "data/site.yaml")
+
+# Queue / plan
+PLAN_PATH = os.getenv("PLAN_PATH", "data/plan.yaml")
+
+# Factory modes
+FACTORY_MODE = os.getenv("FACTORY_MODE", "generate").strip().lower()  # generate|regen
+REGEN_RULE = os.getenv("REGEN_RULE", "").strip()  # e.g. "version_lt:2" or "contract_mismatch"
+REGEN_HUB = os.getenv("REGEN_HUB", "").strip()
+REGEN_SLUGS = os.getenv("REGEN_SLUGS", "").strip()  # comma-separated
+GEN_VERSION = int(os.getenv("GEN_VERSION", "2"))
+BACKFILL_METADATA = os.getenv("BACKFILL_METADATA", "1").strip() == "1"
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
@@ -72,6 +84,16 @@ def slugify(s):
 def load_titles():
     with open(TITLES_POOL_PATH, "r", encoding="utf-8") as f:
         return [t.strip() for t in f if t.strip()]
+
+def load_plan(path: str) -> dict:
+    if not os.path.isfile(path):
+        return {"items": []}
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {"items": []}
+
+def save_plan(path: str, plan: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(plan or {"items": []}, f, sort_keys=False, allow_unicode=True)
 
 def parse_json_strict_or_extract(raw: str) -> dict:
     raw = (raw or "").strip()
@@ -125,28 +147,33 @@ def call_kimi(system: str, prompt: str):
     raise RuntimeError(last_err or "API retries exhausted")
 
 def build_prompts(cfg: dict):
-    brand = cfg.get("brand", "Reality Checks")
-    hubs = cfg.get("content", {}).get("hubs", [
-        "work-career", "money-stress", "burnout-load", "milestones", "social-norms"
-    ])
-    page_types = cfg.get("content", {}).get("page_types", [
-        "is-it-normal", "checklist", "red-flags", "myth-vs-reality", "explainer"
-    ])
+    # data/site.yaml is the single contract.
+    site = cfg.get("site", {}) if isinstance(cfg, dict) else {}
+    taxonomy = cfg.get("taxonomy", {}) if isinstance(cfg, dict) else {}
+    generation = cfg.get("generation", {}) if isinstance(cfg, dict) else {}
 
-    forbidden = cfg.get("writing", {}).get("forbidden_words", [])
+    brand = site.get("brand") or site.get("title") or "Reality Checks"
+    hubs = [h.get("id") for h in (taxonomy.get("hubs") or []) if isinstance(h, dict) and h.get("id")] or [
+        "work-career", "money-stress", "burnout-load", "milestones", "social-norms"
+    ]
+    page_types = generation.get("page_types") or [
+        "is-it-normal", "checklist", "red-flags", "myth-vs-reality", "explainer"
+    ]
+
+    forbidden = generation.get("forbidden_words") or []
     forbidden_str = ", ".join(forbidden) if forbidden else "diagnose, diagnosis, prescribed, guaranteed, sue"
 
-    outline = cfg.get("prompts", {}).get("fixed_h2_outline", [
+    outline = generation.get("outline_h2") or [
         "What this feeling usually means",
         "Common reasons",
         "What makes it worse",
         "What helps (non-advice)",
         "When it might signal a bigger issue",
         "FAQs",
-    ])
+    ]
     outline_md = "\n".join([f"## {h}" for h in outline])
 
-    closing_templates = cfg.get("prompts", {}).get("closing_reassurance_templates", [])
+    closing_templates = generation.get("closing_reassurance_templates") or []
     closing_hint = ""
     if closing_templates:
         closing_hint = "Choose ONE closing reassurance line in a similar style to these:\n- " + "\n- ".join(closing_templates[:3])
@@ -183,19 +210,274 @@ def choose_close(data: dict, cfg: dict) -> str:
     if close:
         return close
 
-    templates = cfg.get("prompts", {}).get("closing_reassurance_templates", [])
+    templates = (cfg.get("generation", {}) or {}).get("closing_reassurance_templates") or []
     if templates:
         return random.choice(templates).strip()
     return "If this hit close to home, you’re not alone — and you’re not failing."
 
+def compute_contract_hash(site_config_path: str) -> str:
+    try:
+        with open(site_config_path, "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()
+    except Exception:
+        return "unknown"
+
+def read_markdown_frontmatter(md_text: str):
+    """
+    Returns (frontmatter_dict, body_text_without_frontmatter)
+    """
+    if not md_text.startswith("---"):
+        return {}, md_text
+    parts = md_text.split("\n---\n", 2)
+    if len(parts) < 3:
+        return {}, md_text
+    fm_raw = parts[1]
+    body = parts[2]
+    try:
+        fm = yaml.safe_load(fm_raw) or {}
+        if not isinstance(fm, dict):
+            fm = {}
+    except Exception:
+        fm = {}
+    return fm, body
+
+def write_markdown_with_frontmatter(front: dict, body: str) -> str:
+    fm_txt = yaml.safe_dump(front or {}, sort_keys=False, allow_unicode=True).strip()
+    return f"---\n{fm_txt}\n---\n\n{body.lstrip() if body else ''}"
+
+def iter_content_pages(root_dir: str) -> list[str]:
+    pages = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        if "index.md" in filenames:
+            pages.append(os.path.join(dirpath, "index.md"))
+    return pages
+
+def backfill_page_metadata(content_root: str, contract_hash: str) -> int:
+    updated = 0
+    for path in iter_content_pages(content_root):
+        try:
+            raw = open(path, "r", encoding="utf-8").read()
+            fm, body = read_markdown_frontmatter(raw)
+            if not fm:
+                continue
+            changed = False
+            if "gen_version" not in fm:
+                fm["gen_version"] = GEN_VERSION
+                changed = True
+            if "contract_hash" not in fm or str(fm.get("contract_hash")) != str(contract_hash):
+                fm["contract_hash"] = contract_hash
+                changed = True
+            if "prompt_hash" not in fm:
+                # We only set a placeholder here; new writes will set a real prompt_hash
+                fm["prompt_hash"] = "backfilled"
+                changed = True
+            if changed:
+                open(path, "w", encoding="utf-8").write(write_markdown_with_frontmatter(fm, body))
+                updated += 1
+        except Exception:
+            continue
+    return updated
+
+def parse_regen_rule(rule: str) -> dict:
+    rule = (rule or "").strip()
+    if not rule:
+        return {}
+    if ":" in rule:
+        k, v = rule.split(":", 1)
+        return {"type": k.strip(), "value": v.strip()}
+    return {"type": rule, "value": ""}
+
+def select_pages_for_regen(content_root: str, contract_hash: str) -> list[dict]:
+    """
+    Returns list of dicts: {path, fm}
+    """
+    targets = []
+    slugs_set = set([s.strip() for s in REGEN_SLUGS.split(",") if s.strip()]) if REGEN_SLUGS else set()
+    rule = parse_regen_rule(REGEN_RULE)
+    for path in iter_content_pages(content_root):
+        try:
+            raw = open(path, "r", encoding="utf-8").read()
+            fm, _ = read_markdown_frontmatter(raw)
+            if not fm:
+                continue
+            slug = str(fm.get("slug") or "").strip()
+            hub = str(fm.get("hub") or "").strip()
+            gv = fm.get("gen_version", 0)
+            try:
+                gv = int(gv)
+            except Exception:
+                gv = 0
+
+            # Explicit selection wins
+            if slugs_set:
+                if slug and slug in slugs_set:
+                    targets.append({"path": path, "fm": fm})
+                continue
+            if REGEN_HUB:
+                if hub.lower() == REGEN_HUB.lower():
+                    targets.append({"path": path, "fm": fm})
+                continue
+
+            # Rule-based selection
+            if not rule:
+                continue
+            rtype = rule.get("type")
+            rval = rule.get("value")
+            if rtype == "version_lt":
+                try:
+                    n = int(rval)
+                except Exception:
+                    n = 0
+                if gv < n:
+                    targets.append({"path": path, "fm": fm})
+            elif rtype == "contract_mismatch":
+                if str(fm.get("contract_hash", "")) != str(contract_hash):
+                    targets.append({"path": path, "fm": fm})
+        except Exception:
+            continue
+
+    return targets
+
+def generate_one_page(title: str, system: str, page_prompt: str, cfg: dict, pinned_hub: str = "", pinned_page_type: str = ""):
+    """
+    Returns (ok, data_dict). data_dict should include title, summary, description, hub, page_type, body_md.
+    """
+    extra = ""
+    if pinned_hub:
+        extra += f"\nHub (must use exactly): {pinned_hub}"
+    if pinned_page_type:
+        extra += f"\nPage type (must use exactly): {pinned_page_type}"
+
+    try:
+        raw = call_kimi(system, f"{page_prompt}\n\nTitle: {title}{extra}")
+        data = parse_json_strict_or_extract(raw)
+    except Exception:
+        return False, {}
+
+    body = (data.get("body_md") or "").strip()
+    required_h2 = (cfg.get("generation", {}) or {}).get("outline_h2", [])
+    if required_h2:
+        missing = [h for h in required_h2 if f"## {h}" not in body]
+        if missing:
+            return False, {}
+    else:
+        if body.count("## ") < 6:
+            return False, {}
+
+    required = ["title", "summary", "description", "hub", "page_type"]
+    if any((k not in data or not str(data[k]).strip()) for k in required):
+        return False, {}
+
+    data["body_md"] = body
+    return True, data
+
+def write_page(slug: str, data: dict, close: str, contract_hash: str, prompt_hash: str) -> None:
+    page_dir = os.path.join(CONTENT_ROOT, slug)
+    os.makedirs(page_dir, exist_ok=True)
+
+    def esc(s: str) -> str:
+        return str(s).replace('"', r'\\"').strip()
+
+    body = (data.get("body_md") or "").strip()
+
+    md = f"""---
+title: "{esc(data['title'])}"
+slug: "{slug}"
+summary: "{esc(data['summary'])}"
+description: "{esc(data['description'])}"
+date: "{date.today().isoformat()}"
+hub: "{esc(data['hub'])}"
+page_type: "{esc(data['page_type'])}"
+gen_version: "{GEN_VERSION}"
+contract_hash: "{contract_hash}"
+prompt_hash: "{prompt_hash}"
+---
+
+**{esc(data['summary'])}**
+
+{body}
+
+---
+
+*{esc(close)}*
+"""
+    with open(os.path.join(page_dir, "index.md"), "w", encoding="utf-8") as f:
+        f.write(md)
+
 def main():
-    cfg = load_yaml(resolve_site_config_path()) if os.path.exists(SITE_CONFIG_PATH) else {}
+    site_cfg_path = resolve_site_config_path()
+    cfg = load_yaml(site_cfg_path)
     system, page_prompt = build_prompts(cfg)
 
     os.makedirs(CONTENT_ROOT, exist_ok=True)
+    contract_hash = compute_contract_hash(site_cfg_path)
     manifest = load_manifest()
-    titles = load_titles()
-    random.shuffle(titles)
+
+    if BACKFILL_METADATA:
+        backfilled = backfill_page_metadata(CONTENT_ROOT, contract_hash)
+        if backfilled:
+            print(f"[metadata] backfilled gen_version/contract_hash/prompt_hash on {backfilled} pages")
+
+    prompt_hash = hashlib.sha1((system + "\n" + page_prompt).encode("utf-8")).hexdigest()
+
+    # Regen mode: rewrite existing pages deterministically by rule/slug/hub.
+    if FACTORY_MODE == "regen":
+        targets = select_pages_for_regen(CONTENT_ROOT, contract_hash)
+        if not targets:
+            print("[regen] no pages matched the regeneration criteria")
+            return
+
+        print(f"[regen] matched {len(targets)} pages; regenerating up to {PAGES_PER_RUN}")
+
+        regen_count = 0
+        attempts = 0
+
+        for t in targets:
+            if regen_count >= PAGES_PER_RUN or attempts >= MAX_ATTEMPTS:
+                break
+            fm = t["fm"]
+            title = str(fm.get("title") or "").strip()
+            slug = str(fm.get("slug") or "").strip()
+            hub = str(fm.get("hub") or "").strip()
+            page_type = str(fm.get("page_type") or "").strip()
+            if not title or not slug:
+                continue
+
+            attempts += 1
+            print(f"[regen] {slug}: {title}")
+
+            ok, data = generate_one_page(
+                title=title,
+                system=system,
+                page_prompt=page_prompt,
+                cfg=cfg,
+                pinned_hub=hub,
+                pinned_page_type=page_type,
+            )
+            if not ok:
+                continue
+
+            close = choose_close(data, cfg)
+            write_page(slug=slug, data=data, close=close, contract_hash=contract_hash, prompt_hash=prompt_hash)
+
+            regen_count += 1
+            manifest.setdefault("generated_this_run", []).append(slug)
+            time.sleep(SLEEP_SECONDS)
+
+        save_manifest(manifest)
+        return
+
+    # Generate mode: consume plan todos first, else fall back to titles_pool (legacy).
+    plan = load_plan(PLAN_PATH)
+    plan_items = plan.get("items", []) if isinstance(plan, dict) else []
+    todo_items = [it for it in plan_items if isinstance(it, dict) and str(it.get("status", "todo")).lower() == "todo"]
+
+    titles = []
+    if todo_items:
+        titles = [it.get("title", "").strip() for it in todo_items if it.get("title")]
+    else:
+        titles = load_titles()
+        random.shuffle(titles)
 
     produced = 0
     attempts = 0
@@ -212,7 +494,15 @@ def main():
         if produced >= PAGES_PER_RUN or attempts >= MAX_ATTEMPTS:
             break
 
-        slug = slugify(title)
+        # If the plan provides an explicit slug, respect it.
+        plan_item = None
+        if todo_items:
+            for it in todo_items:
+                if it.get("title", "").strip() == title and str(it.get("status", "todo")).lower() == "todo":
+                    plan_item = it
+                    break
+
+        slug = (plan_item.get("slug") if isinstance(plan_item, dict) and plan_item.get("slug") else None) or slugify(title)
 
         if slug in used:
             continue
@@ -222,64 +512,33 @@ def main():
 
         attempts += 1
 
-        try:
-            raw = call_kimi(system, f"{page_prompt}\n\nTitle: {title}")
-            data = parse_json_strict_or_extract(raw)
-        except Exception:
-            retries += 1
-            per_title_fail[slug] = per_title_fail.get(slug, 0) + 1
-            continue
+        pinned_hub = ""
+        pinned_type = ""
+        if isinstance(plan_item, dict):
+            pinned_hub = str(plan_item.get("hub") or "").strip()
+            pinned_type = str(plan_item.get("page_type") or "").strip()
 
-        body = (data.get("body_md") or "").strip()
-
-        required_h2 = cfg.get("prompts", {}).get("fixed_h2_outline", [])
-        if required_h2:
-            missing = [h for h in required_h2 if f"## {h}" not in body]
-            if missing:
-                deletes += 1
-                per_title_fail[slug] = per_title_fail.get(slug, 0) + 1
-                continue
-        else:
-            if body.count("## ") < 6:
-                deletes += 1
-                per_title_fail[slug] = per_title_fail.get(slug, 0) + 1
-                continue
-
-        required = ["title", "summary", "description", "hub", "page_type"]
-        if any((k not in data or not str(data[k]).strip()) for k in required):
+        ok, data = generate_one_page(
+            title=title,
+            system=system,
+            page_prompt=page_prompt,
+            cfg=cfg,
+            pinned_hub=pinned_hub,
+            pinned_page_type=pinned_type,
+        )
+        if not ok:
             deletes += 1
             per_title_fail[slug] = per_title_fail.get(slug, 0) + 1
             continue
 
         close = choose_close(data, cfg)
+        write_page(slug=slug, data=data, close=close, contract_hash=contract_hash, prompt_hash=prompt_hash)
 
-        page_dir = os.path.join(CONTENT_ROOT, slug)
-        os.makedirs(page_dir, exist_ok=True)
-
-        def esc(s: str) -> str:
-            return str(s).replace('"', r'\"').strip()
-
-        md = f"""---
-title: "{esc(data['title'])}"
-slug: "{slug}"
-summary: "{esc(data['summary'])}"
-description: "{esc(data['description'])}"
-date: "{date.today().isoformat()}"
-hub: "{esc(data['hub'])}"
-page_type: "{esc(data['page_type'])}"
----
-
-**{esc(data['summary'])}**
-
-{body}
-
----
-
-*{esc(close)}*
-"""
-
-        with open(os.path.join(page_dir, "index.md"), "w", encoding="utf-8") as f:
-            f.write(md)
+        # Mark plan item done (idempotent queue), if used.
+        if isinstance(plan_item, dict):
+            plan_item["slug"] = slug
+            plan_item["status"] = "done"
+            plan_item["generated_date"] = date.today().isoformat()
 
         produced += 1
         used.add(slug)
@@ -288,6 +547,10 @@ page_type: "{esc(data['page_type'])}"
         time.sleep(SLEEP_SECONDS)
 
     save_manifest(manifest)
+
+    # Persist plan progress.
+    if todo_items:
+        save_plan(PLAN_PATH, plan)
 
     duration = int(time.time() - START_TIME)
     print("\n===== FACTORY SUMMARY =====")
