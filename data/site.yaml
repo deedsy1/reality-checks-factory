@@ -41,17 +41,12 @@ generation:
   - Intro
   - Definitions and key terms
   - Why this topic exists
-  - What this feeling or situation usually means
   - How people usually experience this
-  - Common reasons this happens
   - How it typically works
-  - What tends to make it worse
-  - What helps (non-advice)
   - When this topic tends to come up
   - Clarifying examples
   - Common misconceptions
   - Why this topic gets misunderstood online
-  - When it might signal a bigger issue
   - Related situations that feel similar
   - Related topics and deeper reading
   - Neutral summary
@@ -62,10 +57,35 @@ generation:
   - You're not failing for feeling this. Start small, be kind to yourself, and keep
     it simple.
   - It's okay if this takes time. Tiny changes count more than perfect plans.
+  wordcount:
+    min: 800
+    ideal_min: 1000
+    ideal_max: 1400
+    max: 2000
+  hard_prohibitions:
+    no_dates: true
+    no_prices: true
+    no_advice: true
+    no_guarantees: true
+    no_first_person: true
+    no_calls_to_action: true
+    no_affiliate: true
+    neutral_comparisons_only: true
+  style_rules:
+    tone: neutral, encyclopedic
+    assume_beginner: true
+    no_hype: true
+    no_fear: true
+    max_sentences_per_paragraph: 3
+    headings_allowed:
+    - '##'
+    - '###'
 internal_linking:
   enabled: true
   same_hub_first: 3
   other_hubs_fill: 3
+  min_links: 3
+  forbid_external: true
 ads:
   provider: none
   adsense_client: ''
@@ -82,19 +102,18 @@ gates:
   - contract_hash
   - prompt_hash
   allow_extra_h2: false
-  word_count:
-    min: 900
-    target_min: 1050
-    target_max: 1400
-    max: 1650
-    hard_min: 800
-    hard_max: 2000
-  prohibited_regex:
-  - \b(19|20)\d{2}\b
-  - \b(recent|recently|currently|this year|last year|next year|today|yesterday|tomorrow)\b
-  - '[$€£¥]\s?\d'
-  - \b(price|prices|cost|costs|afford|expensive|cheap|profit|revenue|roi)\b
-  - \b(i|we|our|my|mine|us)\b
-  - \b(should|must|need to|do this|try to|start by|you should)\b
-  - \b(affiliate|sponsored|review|best product|top product)\b
-  internal_links_min: 3
+  wordcount_min: 800
+  wordcount_max: 2000
+  enforce_headings_only: true
+  max_sentences_per_paragraph: 3
+  min_internal_links: 3
+  forbid_external_links: true
+  no_click_here: true
+  no_first_person: true
+  no_dates: true
+  no_prices: true
+  no_guarantees: true
+  no_calls_to_action: true
+  no_affiliate: true
+  faq_min: 4
+  faq_max: 8

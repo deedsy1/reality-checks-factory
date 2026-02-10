@@ -6,6 +6,7 @@ import random
 import hashlib
 import requests
 from datetime import date
+from pathlib import Path
 import yaml
 
 START_TIME = time.time()
@@ -146,6 +147,30 @@ def call_kimi(system: str, prompt: str):
 
     raise RuntimeError(last_err or "API retries exhausted")
 
+
+def build_internal_link_hints(content_root: str = "content/pages", limit: int = 40) -> str:
+    """
+    Build a curated list of existing internal links for the model to use.
+    Format: - [Title](/pages/slug/)
+    """
+    root = Path(content_root)
+    items = []
+    for md in root.glob("*/index.md"):
+        try:
+            raw = md.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        fm, _ = read_frontmatter(raw)
+        slug = fm.get("slug") or md.parent.name
+        title = fm.get("title") or slug.replace("-", " ").title()
+        items.append((str(title).strip(), str(slug).strip()))
+    # Stable shuffle
+    items = sorted(items, key=lambda x: x[1])
+    # Take last N (newer slugs tend to be later alphabetically? doesn't matter)
+    items = items[:limit]
+    return "\n".join([f"- [{t}](/pages/{s}/)" for t, s in items if t and s])
+
+
 def build_prompts(cfg: dict):
     # data/site.yaml is the single contract.
     site = cfg.get("site", {}) if isinstance(cfg, dict) else {}
@@ -197,11 +222,36 @@ Use these H2 sections exactly:
 {outline_md}
 
 Rules:
+- Neutral, encyclopedic tone (beginner-friendly). No hype, no fear framing.
+- No medical, legal, or financial advice.
+- No dates or time-sensitive language (no years, “recent”, “currently”, “this year”, “today”, “now”).
+- No prices, costs, or financial claims.
+- No guarantees/promises (“always”, “never”, “100%”, “will definitely”, “guarantee”).
+- No first-person language (“I”, “we”, “our”, “my”).
+- No calls-to-action or directive language (“you should”, “try this”, “make sure to”, “sign up”, “buy”, “download”).
+- No affiliate/product review language (affiliate, sponsored, review, coupon, discount).
+- Comparisons must be neutral (avoid superlatives like “best”, “worst”, “better than”).
+- Short paragraphs: 2–3 sentences max.
+- Use ONLY H2 (##) and H3 (###) headings. No H1, no H4+.
+- Include at least 3 contextually relevant internal links using ONLY relative URLs like /pages/<slug>/ (no external links).
+- Wordcount: minimum 800 words, target 1000–1400, maximum 2000.
+
+Return ONLY JSON with:
+title
+summary (one sentence reassurance; also used as meta description)
+description (<= 160 chars, no quotes)
+hub (one of: { " | ".join(hubs) })
+page_type (one of: { " | ".join(page_types) })
+closing_reassurance (one short, gentle line; NOT advice)
+body_md (markdown only; must include the exact H2 headings below)
+
+Use these H2 sections exactly:
+{outline_md}
+
+Rules:
 - Keep tone grounded and human, not clinical.
 - No "diagnose/diagnosis/prescribed/guaranteed/sue".
 - FAQs: 4-6 Q&As (short).
-- Word count: aim for {wc_target_min}-{wc_target_max} words; hard minimum {wc_hard_min}; hard maximum {wc_hard_max}.
-- Include at least {internal_links_min} internal links to other relevant pages on this site using Markdown links (no "click here").
 - Do not include the closing reassurance inside body_md; put it in closing_reassurance.
 {closing_hint}
 """
@@ -410,6 +460,11 @@ def main():
     site_cfg_path = resolve_site_config_path()
     cfg = load_yaml(site_cfg_path)
     system, page_prompt = build_prompts(cfg)
+
+    # Provide internal link candidates so the model can reliably include them
+    link_hints = build_internal_link_hints(CONTENT_ROOT, limit=40)
+    if link_hints:
+        page_prompt = page_prompt + "\n\nInternal links you MAY use (choose at least 3; do not invent links; no external links):\n" + link_hints + "\n"
 
     os.makedirs(CONTENT_ROOT, exist_ok=True)
     contract_hash = compute_contract_hash(site_cfg_path)

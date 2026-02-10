@@ -1,35 +1,32 @@
 import os
-import json
 import re
-import shutil
+import sys
+import yaml
+from pathlib import Path
 from typing import Dict, List, Tuple
 
-import yaml
+SITE_CONFIG_PATH = os.getenv("SITE_CONFIG_PATH", "data/site.yaml")
+CONTENT_ROOT = Path(os.getenv("CONTENT_ROOT", "content/pages"))
+DELETE_ON_FAIL = os.getenv("DELETE_ON_FAIL", "1").strip() == "1"
 
-ROOT = "content/pages"
-MANIFEST_PATH = "scripts/manifest.json"
-SITE_CONFIG_PATH = os.getenv("SITE_CONFIG", "data/site.yaml")
-
+# ---------------------------
+# Helpers
+# ---------------------------
 
 def load_yaml(path: str) -> dict:
-    if not os.path.isfile(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
         return {}
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
 
-
-def read_text(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-
-def split_frontmatter(md: str) -> Tuple[Dict, str]:
-    """Return (frontmatter_dict, body_md)."""
-    if not md.startswith("---"):
-        return {}, md
-    parts = md.split("---", 2)
+def read_frontmatter(md_text: str) -> Tuple[Dict, str]:
+    """Return (frontmatter_dict, body_text_without_frontmatter)."""
+    if not md_text.startswith("---"):
+        return {}, md_text
+    parts = md_text.split("\n---\n", 2)
     if len(parts) < 3:
-        return {}, md
+        return {}, md_text
     fm_raw = parts[1]
     body = parts[2]
     try:
@@ -40,194 +37,307 @@ def split_frontmatter(md: str) -> Tuple[Dict, str]:
         fm = {}
     return fm, body
 
+def word_count(text: str) -> int:
+    return len(re.findall(r"\b[\w']+\b", text))
 
-def extract_h2_headings(body: str) -> List[str]:
-    return [m.group(1).strip() for m in re.finditer(r"^##\s+(.+?)\s*$", body, flags=re.M)]
+def extract_markdown_links(md: str) -> List[Tuple[str, str]]:
+    # [text](url)
+    return re.findall(r"\[([^\]]+)\]\(([^)]+)\)", md)
 
+def split_paragraphs(md: str) -> List[str]:
+    # Split on blank lines, keep simple
+    parts = re.split(r"\n{2,}", md.strip())
+    return [p.strip() for p in parts if p.strip()]
 
-def extract_faq_count(body: str) -> int:
-    """Count FAQ questions inside the '## FAQs' section.
-
-    Accepts either:
-    - '### Question?'
-    - 'Q: Question?'
-    """
-    m = re.search(r"^##\s+FAQs\s*$", body, flags=re.M)
-    if not m:
+def sentence_count(paragraph: str) -> int:
+    # ignore headings, lists, code fences
+    if paragraph.startswith("#"):
         return 0
+    if re.match(r"^(\-|\*|\d+\.)\s+", paragraph):
+        return 0
+    if paragraph.startswith("```"):
+        return 0
+    # crude sentence count
+    return len(re.findall(r"[.!?](?:\s|$)", paragraph))
+
+def has_only_h2_h3(md: str) -> bool:
+    # Disallow H1 and H4+
+    if re.search(r"^#\s+", md, flags=re.M):
+        return False
+    if re.search(r"^####\s+", md, flags=re.M):
+        return False
+    return True
+
+def extract_h2_sequence(md: str) -> List[str]:
+    return [m.group(1).strip() for m in re.finditer(r"^##\s+(.+?)\s*$", md, flags=re.M)]
+
+def section_text(md: str, h2: str) -> str:
+    # Return text under the H2 heading until next H2
+    pat = re.compile(rf"^##\s+{re.escape(h2)}\s*$", re.M)
+    m = pat.search(md)
+    if not m:
+        return ""
     start = m.end()
-    # Stop at next H2
-    m2 = re.search(r"^##\s+", body[start:], flags=re.M)
-    end = start + (m2.start() if m2 else len(body[start:]))
-    section = body[start:end]
-    h3 = len(re.findall(r"^###\s+.+", section, flags=re.M))
-    q = len(re.findall(r"^Q:\s+.+", section, flags=re.M))
-    return max(h3, q)
+    rest = md[start:]
+    m2 = re.search(r"^##\s+", rest, flags=re.M)
+    return (rest[:m2.start()] if m2 else rest).strip()
 
+def contains_any(text: str, patterns: List[str]) -> bool:
+    for p in patterns:
+        if re.search(p, text, flags=re.I|re.M):
+            return True
+    return False
 
+# ---------------------------
+# Rules (default fallbacks)
+# ---------------------------
 
+DEFAULT_FORBIDDEN = [
+    r"\bdiagnos(e|is)\b",
+    r"\bprescrib(e|ed|ing)\b",
+    r"\bsue\b",
+]
 
-def count_words(text: str) -> int:
-    return len(re.findall(r"\b\w+\b", text or ""))
+DEFAULT_NO_DATES = [
+    r"\b(19|20)\d{2}\b",  # years
+    r"\brecent(ly)?\b",
+    r"\bcurrently\b",
+    r"\bthis\s+year\b",
+    r"\blast\s+year\b",
+    r"\btoday\b",
+    r"\bnow\b",
+]
 
-def count_internal_links(body: str) -> int:
-    # Count markdown links that point to this site (relative /pages/ or /hubs/)
-    links = re.findall(r"\[[^\]]+\]\((/[^)]+)\)", body or "")
-    return sum(1 for href in links if href.startswith("/pages/") or href.startswith("/hubs/") or href.startswith("/"))
-def contains_forbidden(text: str, forbidden: List[str]) -> List[str]:
-    t = (text or "").lower()
-    hits = []
-    for phrase in forbidden:
-        p = (phrase or "").strip().lower()
-        if not p:
-            continue
-        if p in t:
-            hits.append(phrase)
-    return hits
+DEFAULT_NO_PRICES = [
+    r"[$€£¥]\s?\d",
+    r"\b\d+(?:\.\d+)?\s?(?:usd|aud|cad|eur|gbp|dollars|bucks)\b",
+    r"\bprice\b",
+    r"\bcost\b",
+]
 
+DEFAULT_NO_GUARANTEES = [
+    r"\bguarantee(d|s)?\b",
+    r"\b100%\b",
+    r"\bwill\s+definitely\b",
+    r"\balways\b",
+    r"\bnever\b",
+]
 
-def gate_page(md_path: str, cfg: dict) -> Tuple[bool, List[str]]:
-    """Return (pass, reasons)."""
-    reasons: List[str] = []
-    md = read_text(md_path)
+DEFAULT_NO_FIRST_PERSON = [
+    r"\b(i|i'm|i’ve|i've|my|mine|me|we|we're|we’ve|we've|our|ours|us)\b",
+]
 
-    fm, body = split_frontmatter(md)
+DEFAULT_NO_CALLS_TO_ACTION = [
+    r"\bclick\s+here\b",
+    r"\bsign\s+up\b",
+    r"\bsubscribe\b",
+    r"\bbuy\b",
+    r"\bpurchase\b",
+    r"\bdownload\b",
+    r"\bjoin\b",
+    r"\btry\s+this\b",
+    r"\byou\s+should\b",
+    r"\bmake\s+sure\s+to\b",
+    r"\bconsider\s+doing\b",
+]
 
-    # Gate 1: Frontmatter required keys
-    required_fm = cfg.get("gates", {}).get(
-        "required_frontmatter",
-        ["title", "slug", "summary", "description", "date", "hub", "page_type"],
-    )
-    missing = [k for k in required_fm if not str(fm.get(k, "")).strip()]
-    if missing:
-        reasons.append(f"missing frontmatter keys: {', '.join(missing)}")
+DEFAULT_NO_AFFILIATE = [
+    r"\baffiliate\b",
+    r"\bsponsored\b",
+    r"\breview\b",
+    r"\bcoupon\b",
+    r"\bdiscount\b",
+]
 
-    # Gate 2: Fixed H2 outline exact + ordered
-    outline = (cfg.get("generation", {}) or {}).get("outline_h2", [])
-    if outline:
-        h2s = extract_h2_headings(body)
-        # We require the H2s to contain the outline headings in order.
-        # Allow extra H2s ONLY if explicitly enabled.
-        allow_extra = bool(cfg.get("gates", {}).get("allow_extra_h2", False))
+DEFAULT_SUPERLATIVES = [
+    r"\bbest\b",
+    r"\bworst\b",
+    r"\bbetter\s+than\b",
+    r"\bmore\s+than\b\s+(?:any|everyone)\b",
+    r"\btop\s+\d+\b",
+]
 
-        if not allow_extra:
-            if h2s != outline:
-                reasons.append("H2 outline mismatch")
+# ---------------------------
+# Validation
+# ---------------------------
+
+def validate_page(md_path: Path, cfg: dict) -> Tuple[bool, List[str], int, int]:
+    """
+    Returns (ok, failures, passed_rules, total_rules_scored)
+    Only "scored" rules contribute to compliance percentage.
+    """
+    failures: List[str] = []
+    scored_total = 0
+    scored_pass = 0
+
+    gates = (cfg.get("gates") or {}) if isinstance(cfg, dict) else {}
+    generation = (cfg.get("generation") or {}) if isinstance(cfg, dict) else {}
+    internal = (cfg.get("internal_linking") or {}) if isinstance(cfg, dict) else {}
+
+    required_outline = generation.get("outline_h2") or []
+    wc_cfg = generation.get("wordcount") or {}
+    wc_min = int(wc_cfg.get("min", gates.get("wordcount_min", 800)))
+    wc_max = int(wc_cfg.get("max", gates.get("wordcount_max", 2000)))
+    ideal_min = int(wc_cfg.get("ideal_min", 1000))
+    ideal_max = int(wc_cfg.get("ideal_max", 1400))
+
+    max_sent = int(gates.get("max_sentences_per_paragraph", generation.get("style_rules", {}).get("max_sentences_per_paragraph", 3)))
+    min_links = int(internal.get("min_links", gates.get("min_internal_links", 3)))
+    forbid_external = bool(internal.get("forbid_external", gates.get("forbid_external_links", True)))
+
+    raw = md_path.read_text(encoding="utf-8")
+    fm, body = read_frontmatter(raw)
+
+    # 1) Frontmatter keys
+    for k in ["title", "slug", "description", "date", "hub", "page_type", "summary"]:
+        scored_total += 1
+        if fm.get(k) is None or str(fm.get(k)).strip() == "":
+            failures.append(f"Missing frontmatter key: {k}")
         else:
-            # Ensure outline appears as a subsequence in order
-            idx = 0
-            for h in h2s:
-                if idx < len(outline) and h.strip() == outline[idx].strip():
-                    idx += 1
-            if idx != len(outline):
-                reasons.append("H2 outline missing or out of order")
+            scored_pass += 1
 
-    # Gate 3: Forbidden phrase scan
-    forbidden = (cfg.get("generation", {}) or {}).get("forbidden_words", [])
-    # Always enforce a minimal default set as a safety net.
-    forbidden_default = [
-        "as an ai",
-        "i am an ai",
-        "diagnose",
-        "diagnosis",
-        "prescribed",
-        "guaranteed",
-        "sue",
-        "legal advice",
-        "medical advice",
-        "financial advice",
-    ]
-    merged = list(dict.fromkeys([*(forbidden or []), *forbidden_default]))
-    hits = contains_forbidden(md, merged)
-    if hits:
-        reasons.append(f"forbidden phrases: {', '.join(hits[:8])}{'...' if len(hits) > 8 else ''}")
+    # 2) Headings restrictions
+    scored_total += 1
+    if not has_only_h2_h3(body):
+        failures.append("Headings must be H2/H3 only (no H1 or H4+).")
+    else:
+        scored_pass += 1
 
-    # Gate 4: FAQ count
-    faq_min = int(cfg.get("gates", {}).get("faq_min", 4))
-    faq_max = int(cfg.get("gates", {}).get("faq_max", 6))
-    faq_n = extract_faq_count(body)
-    if faq_n < faq_min or faq_n > faq_max:
-        reasons.append(f"FAQ count out of range ({faq_n}, expected {faq_min}-{faq_max})")
+    # 3) Outline (exact H2 set and order)
+    if required_outline:
+        scored_total += 1
+        got = extract_h2_sequence(body)
+        if got != required_outline:
+            failures.append(f"H2 outline mismatch. Expected exactly: {required_outline}. Got: {got}.")
+        else:
+            scored_pass += 1
 
+    # 4) Wordcount
+    wc = word_count(body)
+    scored_total += 1
+    if wc < wc_min or wc > wc_max:
+        failures.append(f"Wordcount out of bounds: {wc} (min {wc_min}, max {wc_max}).")
+    else:
+        scored_pass += 1
 
+    # 5) Paragraph sentence limit
+    scored_total += 1
+    bad_paras = 0
+    for p in split_paragraphs(body):
+        sc = sentence_count(p)
+        if sc > max_sent:
+            bad_paras += 1
+    if bad_paras > 0:
+        failures.append(f"Too many long paragraphs: {bad_paras} paragraphs exceed {max_sent} sentences.")
+    else:
+        scored_pass += 1
 
-# Gate 4b: Word count (evergreen depth)
-wc_cfg = (cfg.get("gates", {}) or {}).get("word_count", {}) or {}
-hard_min = int(wc_cfg.get("hard_min", wc_cfg.get("min", 800)))
-hard_max = int(wc_cfg.get("hard_max", wc_cfg.get("max", 2000)))
-wc = count_words(body)
-if wc < hard_min or wc > hard_max:
-    reasons.append(f"word count out of range ({wc}, expected {hard_min}-{hard_max})")
+    # 6) Internal links
+    links = extract_markdown_links(body)
+    internal_links = [u for _, u in links if u.startswith("/")]
+    external_links = [u for _, u in links if re.match(r"^(https?:)?//", u) or u.startswith("www.")]
+    scored_total += 1
+    if len(internal_links) < min_links:
+        failures.append(f"Too few internal links: {len(internal_links)} (min {min_links}).")
+    else:
+        scored_pass += 1
 
-# Gate 4c: Prohibited regex patterns (dates/prices/first-person/etc)
-patterns = (cfg.get("gates", {}) or {}).get("prohibited_regex", []) or []
-hits = []
-for pat in patterns:
-    try:
-        if re.search(pat, body, flags=re.I):
-            hits.append(pat)
-    except re.error:
-        continue
-if hits:
-    reasons.append(f"prohibited pattern hit ({len(hits)} rules)")
+    scored_total += 1
+    if any("click here" in (t or "").lower() for t, _ in links):
+        failures.append('Link text "click here" is forbidden.')
+    else:
+        scored_pass += 1
 
-# Gate 4d: Internal links minimum
-min_links = int((cfg.get("gates", {}) or {}).get("internal_links_min", 0))
-if min_links > 0:
-    n_links = count_internal_links(body)
-    if n_links < min_links:
-        reasons.append(f"too few internal links ({n_links}, expected >= {min_links})")
-    # Optional Gate 5: section minimum words (lightweight)
-    min_words = int(os.getenv("MIN_SECTION_WORDS", str(cfg.get("gates", {}).get("min_section_words", 0))))
-    if min_words > 0 and outline:
-        # Rough split by H2
-        for heading in outline:
-            sec = re.split(rf"^##\s+{re.escape(heading)}\s*$", body, flags=re.M)
-            if len(sec) < 2:
-                continue
-            after = sec[1]
-            # Up to next H2
-            after = re.split(r"^##\s+", after, maxsplit=1, flags=re.M)[0]
-            wc = len(re.findall(r"\b\w+\b", after))
-            if wc < min_words and heading.strip().lower() != "faqs":
-                reasons.append(f"section too short: '{heading}' ({wc} words < {min_words})")
-                break
+    scored_total += 1
+    if forbid_external and external_links:
+        failures.append(f"External links forbidden (found {len(external_links)}).")
+    else:
+        scored_pass += 1
 
-    return (len(reasons) == 0), reasons
+    # 7) Hard prohibitions in body + frontmatter
+    full_text = (yaml.safe_dump(fm, sort_keys=False) + "\n" + body)
 
+    def score_rule(ok: bool, msg: str):
+        nonlocal scored_total, scored_pass
+        scored_total += 1
+        if ok:
+            scored_pass += 1
+        else:
+            failures.append(msg)
 
-def main():
+    score_rule(not contains_any(full_text, DEFAULT_FORBIDDEN), "Forbidden medical/legal term hit.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_DATES), "Date/recency language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_PRICES), "Price/cost language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_GUARANTEES), "Guarantee/promise language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_FIRST_PERSON), "First-person language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_CALLS_TO_ACTION), "Calls-to-action / directive phrasing is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_AFFILIATE), "Affiliate/review language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_SUPERLATIVES), "Superlative/superiority language is forbidden (stay neutral).")
+
+    # 8) Structural content presence within sections
+    # Require meaningful text in the key sections
+    required_sections = ["Intro", "Definitions and key terms", "How it typically works", "Clarifying examples", "Neutral summary"]
+    for sec in required_sections:
+        scored_total += 1
+        txt = section_text(body, sec)
+        if word_count(txt) < 40:
+            failures.append(f'Section "{sec}" is too thin (<40 words).')
+        else:
+            scored_pass += 1
+
+    # 9) FAQs count (look for ### Q: lines or bold questions)
+    scored_total += 1
+    faq_txt = section_text(body, "FAQs")
+    # Count question-like lines
+    q_count = len(re.findall(r"^###\s+.+", faq_txt, flags=re.M)) + len(re.findall(r"^\*\*Q[:\s].+\*\*", faq_txt, flags=re.M))
+    if q_count < int(gates.get("faq_min", 4)):
+        failures.append(f"Too few FAQs: {q_count} (min {int(gates.get('faq_min', 4))}).")
+    else:
+        scored_pass += 1
+
+    ok = len(failures) == 0
+    return ok, failures, scored_pass, scored_total
+
+def main() -> int:
     cfg = load_yaml(SITE_CONFIG_PATH)
 
-    with open(MANIFEST_PATH, "r", encoding="utf-8") as f:
-        manifest = json.load(f) or {}
+    pages = sorted(CONTENT_ROOT.glob("*/index.md"))
+    if not pages:
+        print("No pages found to validate.")
+        return 0
 
-    deleted = 0
-    checked = 0
-    failures = []
+    total_scored = 0
+    total_passed = 0
+    failures_total = 0
 
-    for slug in manifest.get("generated_this_run", []):
-        md_path = os.path.join(ROOT, slug, "index.md")
-        if not os.path.isfile(md_path):
-            continue
+    for md in pages:
+        ok, fails, passed, scored = validate_page(md, cfg)
+        total_scored += scored
+        total_passed += passed
 
-        checked += 1
-        ok, reasons = gate_page(md_path, cfg)
-        if ok:
-            continue
+        if not ok:
+            failures_total += len(fails)
+            slug = md.parent.name
+            for f in fails:
+                print(f"[FAIL] {slug}: {f}")
+            if DELETE_ON_FAIL:
+                try:
+                    # delete entire page folder
+                    for p in md.parent.glob("**/*"):
+                        p.unlink(missing_ok=True)
+                    md.parent.rmdir()
+                    print(f"[DEL]  {slug}: removed page folder")
+                except Exception:
+                    pass
 
-        shutil.rmtree(os.path.join(ROOT, slug), ignore_errors=True)
-        deleted += 1
-        failures.append({"slug": slug, "reasons": reasons})
+    compliance = 0.0 if total_scored == 0 else (total_passed / total_scored) * 100.0
+    print(f"\nCompliance score: {compliance:.1f}% ({total_passed}/{total_scored} checks passed)")
+    if failures_total:
+        print(f"Total failures: {failures_total}")
+        return 1
 
-    print(f"Quality gates complete. Checked {checked} pages. Deleted {deleted} pages.")
-    if failures:
-        print("\n---- FAILURES (first 20) ----")
-        for item in failures[:20]:
-            print(f"- {item['slug']}: {', '.join(item['reasons'])}")
-        if len(failures) > 20:
-            print(f"...and {len(failures) - 20} more")
-
+    print("All pages passed quality gates.")
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
