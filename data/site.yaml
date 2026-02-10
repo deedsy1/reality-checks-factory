@@ -1,97 +1,96 @@
-# Single source of truth for this site.
-# Hugo uses this (via .Site.Data.site) and the generator reads it too.
-
 site:
-  # Used for UI + meta defaults
-  title: "Reality Checks"
-  brand: "Reality Checks"
-  language_code: "en-us"
-
-  # Your canonical URL (Cloudflare Pages or custom domain)
-  base_url: "https://reality-checks-factory.pages.dev/"
-
-  # Used in global meta if a page is missing description
-  default_meta_description: "Calm, practical reassurance — not advice."
-
+  title: Reality Checks
+  brand: Reality Checks
+  language_code: en-us
+  base_url: https://reality-checks-factory.pages.dev/
+  default_meta_description: Calm, practical reassurance — not advice.
 theme:
-  # Theme pack name (must match static/css/themes/<pack>.css)
-  pack: "calm-paper"
-
-  # Fonts: keep it web-safe by default; you can use Google Fonts in layouts/partials/head.html if you prefer
-  font_sans: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif"
-  font_serif: "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif"
-  content_max: "74ch"
-  radius: "16px"
-
+  pack: calm-paper
+  font_sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial,
+    sans-serif
+  font_serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif
+  content_max: 74ch
+  radius: 16px
 taxonomy:
-  # Hubs control category pages + internal linking prioritization
   hubs:
-    - id: "work-career"
-      label: "Work & Career"
-    - id: "money-stress"
-      label: "Money & Stress"
-    - id: "burnout-load"
-      label: "Burnout & Load"
-    - id: "milestones"
-      label: "Milestones"
-    - id: "social-norms"
-      label: "Social Norms"
-
+  - id: work-career
+    label: Work & Career
+  - id: money-stress
+    label: Money & Stress
+  - id: burnout-load
+    label: Burnout & Load
+  - id: milestones
+    label: Milestones
+  - id: social-norms
+    label: Social Norms
 generation:
-  # Model behavior guardrails
-  no_advice_notice: "NO medical, legal, or financial advice."
+  no_advice_notice: NO medical, legal, or financial advice.
   forbidden_words:
-    - diagnose
-    - diagnosis
-    - prescribed
-    - guaranteed
-    - sue
-
-  # Page types you want in this site
+  - diagnose
+  - diagnosis
+  - prescribed
+  - guaranteed
+  - sue
+  - affiliate
+  - coupon
+  - discount
+  - buy now
+  - limited time
+  - click here
   page_types:
-    - is-it-normal
-    - checklist
-    - red-flags
-    - myth-vs-reality
-    - explainer
-
-  # Fixed outline headings (must match generator + quality gates)
+  - is-it-normal
+  - checklist
+  - red-flags
+  - myth-vs-reality
+  - explainer
   outline_h2:
-    - "What this feeling usually means"
-    - "Common reasons"
-    - "What makes it worse"
-    - "What helps (non-advice)"
-    - "When it might signal a bigger issue"
-    - "FAQs"
-
-  # Closing reassurance: appended after the body
+  - Intro
+  - Definitions
+  - Core explanation
+  - Clarifying examples
+  - Summary
+  - FAQs
   closing_reassurance_templates:
-    - "If this is hitting a nerve, you're not alone — and you don't have to have it all figured out today."
-    - "You're not failing for feeling this. Start small, be kind to yourself, and keep it simple."
-    - "It's okay if this takes time. Tiny changes count more than perfect plans."
-
+  - If this is hitting a nerve, you're not alone — and you don't have to have it all
+    figured out today.
+  - You're not failing for feeling this. Start small, be kind to yourself, and keep
+    it simple.
+  - It's okay if this takes time. Tiny changes count more than perfect plans.
 internal_linking:
   enabled: true
-  # Prefer same hub links first
   same_hub_first: 3
-  # Then fill with links from other hubs
   other_hubs_fill: 3
-
 ads:
-  # Off by default; flip in hugo.yaml or env later
-  provider: "none"   # none | adsense | journey | raptive
-  adsense_client: "" # e.g. ca-pub-xxxxxxxx
-
+  provider: none
+  adsense_client: ''
 gates:
   required_frontmatter:
-    - title
-    - slug
-    - summary
-    - description
-    - date
-    - hub
-    - page_type
-    - gen_version
-    - contract_hash
-    - prompt_hash
+  - title
+  - slug
+  - summary
+  - description
+  - date
+  - hub
+  - page_type
+  - gen_version
+  - contract_hash
   allow_extra_h2: false
+  faq_min: 4
+  faq_max: 6
+  min_words: 800
+  max_words: 1800
+  min_internal_links: 3
+  max_sentences_per_paragraph: 3
+  min_intro_words: 60
+  enforce_heading_levels: true
+  ban_dates_in_body: true
+  banned_regex:
+  - \b(19|20)\d{2}\b
+  - \b(recent|recently|currently|today|this year|nowadays|at the moment)\b
+  - (\$|€|£|¥)\s*\d
+  - \b\d+(\.\d+)?\s*(usd|aud|cad|gbp|eur|dollars|euros|pounds)\b
+  - \b(guarantee(d)?|promise(d|s)?|always works|will definitely)\b
+  - \b(you should|you must|do this|try to|make sure to|start by|consider doing)\b
+  - \b(i|we|our|ours|us|my|mine)\b
+  - \b(best|top\s+\d+|review|affiliate|sponsored|deal|discount|coupon)\b
+  - \b(better than|worse than|superior to|most effective)\b
