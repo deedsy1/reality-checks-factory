@@ -185,6 +185,12 @@ def build_prompts(cfg: dict):
         "is-it-normal", "checklist", "red-flags", "myth-vs-reality", "explainer"
     ]
 
+    wc = generation.get("wordcount") or {}
+    wc_min = int(wc.get("min") or 900)
+    wc_ideal_min = int(wc.get("ideal_min") or 1100)
+    wc_ideal_max = int(wc.get("ideal_max") or 1600)
+    wc_max = int(wc.get("max") or 1900)
+
     forbidden = generation.get("forbidden_words") or []
     forbidden_str = ", ".join(forbidden) if forbidden else "diagnose, diagnosis, prescribed, guaranteed, sue"
 
@@ -234,7 +240,7 @@ Rules:
 - Short paragraphs: 2–3 sentences max.
 - Use ONLY H2 (##) and H3 (###) headings. No H1, no H4+.
 - Include at least 3 contextually relevant internal links using ONLY relative URLs like /pages/<slug>/ (no external links).
-- Wordcount: minimum 800 words, target 1000–1400, maximum 2000.
+- Wordcount: minimum {wc_min} words, target {wc_ideal_min}–{wc_ideal_max}, maximum {wc_max}.
 
 Return ONLY JSON with:
 title

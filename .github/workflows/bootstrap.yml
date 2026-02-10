@@ -1,0 +1,88 @@
+name: Bootstrap Site
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Niche/topic for the site (e.g. 'work anxiety', 'home espresso basics')"
+        required: true
+      tone:
+        description: "Optional tone (e.g. 'calm, encyclopedic, beginner-friendly')"
+        required: false
+        default: ""
+      title_count:
+        description: "How many titles to generate into scripts/titles_pool.txt"
+        required: false
+        default: "300"
+      pages_now:
+        description: "How many pages to generate immediately after bootstrapping"
+        required: false
+        default: "5"
+      base_url:
+        description: "Optional baseURL for hugo.yaml (e.g. https://your-site.pages.dev/)"
+        required: false
+        default: "https://YOUR-SITE.pages.dev/"
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-22.04
+    env:
+      FACTORY_ENABLED: "1"
+      FACTORY_COMMIT_MODE: "main"
+
+      MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+      MOONSHOT_BASE_URL: "https://api.moonshot.ai/v1"
+      KIMI_MODEL: "kimi-k2.5"
+      TEMPERATURE: "1"
+      MAX_OUTPUT_TOKENS: "1600"
+
+      BOOTSTRAP_NICHE: ${{ github.event.inputs.niche }}
+      BOOTSTRAP_TONE: ${{ github.event.inputs.tone }}
+      TITLE_COUNT: ${{ github.event.inputs.title_count }}
+      PAGES_PER_RUN: ${{ github.event.inputs.pages_now }}
+      BOOTSTRAP_BASE_URL: ${{ github.event.inputs.base_url }}
+
+      MAX_ATTEMPTS: "25"
+      SLEEP_SECONDS: "0.3"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: STOP switch
+        if: env.FACTORY_ENABLED == '0'
+        run: |
+          echo "FACTORY DISABLED — exiting."
+          exit 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Bootstrap site identity + titles pool
+        run: python scripts/bootstrap_site.py
+
+      - name: Generate pages
+        run: python scripts/generate_pages.py
+
+      - name: Quality gates (delete failures)
+        run: python scripts/quality_gates.py
+
+      - name: Commit changes
+        if: env.FACTORY_COMMIT_MODE == 'main'
+        run: |
+          git config user.name "factory-bot"
+          git config user.email "factory@users.noreply.github.com"
+          git add .
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Bootstrap: ${{ github.event.inputs.niche }}"
+          git push

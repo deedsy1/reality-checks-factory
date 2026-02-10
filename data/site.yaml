@@ -58,10 +58,10 @@ generation:
     it simple.
   - It's okay if this takes time. Tiny changes count more than perfect plans.
   wordcount:
-    min: 800
-    ideal_min: 1000
-    ideal_max: 1400
-    max: 2000
+    min: 900
+    ideal_min: 1100
+    ideal_max: 1600
+    max: 1900
   hard_prohibitions:
     no_dates: true
     no_prices: true

@@ -96,6 +96,12 @@ DEFAULT_FORBIDDEN = [
     r"\bdiagnos(e|is)\b",
     r"\bprescrib(e|ed|ing)\b",
     r"\bsue\b",
+    r"\btreat(ment|ments|ing)?\b",
+    r"\bcure(s|d)?\b",
+    r"\btherapy\b",
+    r"\btherapist\b",
+    r"\blawyer\b",
+    r"\baccountant\b",
 ]
 
 DEFAULT_NO_DATES = [
@@ -115,6 +121,17 @@ DEFAULT_NO_PRICES = [
     r"\bcost\b",
 ]
 
+
+DEFAULT_NO_STATS = [
+    r"\bstudies\s+show\b",
+    r"\bresearch\s+shows\b",
+    r"\baccording\s+to\b",
+    r"\bsurvey\b",
+    r"\bstatistic(s)?\b",
+    r"\b\d{1,3}%\b",
+    r"\b\d+(?:\.\d+)?\s?(?:percent|per\s*cent)\b",
+    r"\b\d+(?:,\d{3})+\b",
+]
 DEFAULT_NO_GUARANTEES = [
     r"\bguarantee(d|s)?\b",
     r"\b100%\b",
@@ -254,6 +271,33 @@ def validate_page(md_path: Path, cfg: dict) -> Tuple[bool, List[str], int, int]:
     else:
         scored_pass += 1
 
+
+    # Related topics section should carry the internal links (makes linking consistent)
+    def extract_section(md: str, h2_title: str) -> str:
+        # Find "## <title>" section and return its contents until next "## "
+        pat = re.compile(rf"^##\s+{re.escape(h2_title)}\s*$", re.M)
+        m = pat.search(md)
+        if not m:
+            return ""
+        start = m.end()
+        # Next H2
+        m2 = re.search(r"^\s*##\s+", md[start:], flags=re.M)
+        end = start + m2.start() if m2 else len(md)
+        return md[start:end].strip()
+
+    related_section = extract_section(body, "Related topics and deeper reading")
+    related_links = []
+    if related_section:
+        for t, u in links_in_markdown(related_section):
+            if (u or "").startswith("/"):
+                related_links.append((t, u))
+
+    scored_total += 1
+    if len(related_links) < min_links:
+        failures.append(f'Related topics section must include at least {min_links} internal links (found {len(related_links)}).')
+    else:
+        scored_pass += 1
+
     # 7) Hard prohibitions in body + frontmatter
     full_text = (yaml.safe_dump(fm, sort_keys=False) + "\n" + body)
 
@@ -268,6 +312,7 @@ def validate_page(md_path: Path, cfg: dict) -> Tuple[bool, List[str], int, int]:
     score_rule(not contains_any(full_text, DEFAULT_FORBIDDEN), "Forbidden medical/legal term hit.")
     score_rule(not contains_any(full_text, DEFAULT_NO_DATES), "Date/recency language is forbidden.")
     score_rule(not contains_any(full_text, DEFAULT_NO_PRICES), "Price/cost language is forbidden.")
+    score_rule(not contains_any(full_text, DEFAULT_NO_STATS), "Statistics/numbered claims are forbidden.")
     score_rule(not contains_any(full_text, DEFAULT_NO_GUARANTEES), "Guarantee/promise language is forbidden.")
     score_rule(not contains_any(full_text, DEFAULT_NO_FIRST_PERSON), "First-person language is forbidden.")
     score_rule(not contains_any(full_text, DEFAULT_NO_CALLS_TO_ACTION), "Calls-to-action / directive phrasing is forbidden.")
