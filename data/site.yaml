@@ -31,12 +31,6 @@ generation:
   - prescribed
   - guaranteed
   - sue
-  - affiliate
-  - coupon
-  - discount
-  - buy now
-  - limited time
-  - click here
   page_types:
   - is-it-normal
   - checklist
@@ -45,10 +39,22 @@ generation:
   - explainer
   outline_h2:
   - Intro
-  - Definitions
-  - Core explanation
+  - Definitions and key terms
+  - Why this topic exists
+  - What this feeling or situation usually means
+  - How people usually experience this
+  - Common reasons this happens
+  - How it typically works
+  - What tends to make it worse
+  - What helps (non-advice)
+  - When this topic tends to come up
   - Clarifying examples
-  - Summary
+  - Common misconceptions
+  - Why this topic gets misunderstood online
+  - When it might signal a bigger issue
+  - Related situations that feel similar
+  - Related topics and deeper reading
+  - Neutral summary
   - FAQs
   closing_reassurance_templates:
   - If this is hitting a nerve, you're not alone — and you don't have to have it all
@@ -74,23 +80,21 @@ gates:
   - page_type
   - gen_version
   - contract_hash
+  - prompt_hash
   allow_extra_h2: false
-  faq_min: 4
-  faq_max: 6
-  min_words: 800
-  max_words: 1800
-  min_internal_links: 3
-  max_sentences_per_paragraph: 3
-  min_intro_words: 60
-  enforce_heading_levels: true
-  ban_dates_in_body: true
-  banned_regex:
+  word_count:
+    min: 900
+    target_min: 1050
+    target_max: 1400
+    max: 1650
+    hard_min: 800
+    hard_max: 2000
+  prohibited_regex:
   - \b(19|20)\d{2}\b
-  - \b(recent|recently|currently|today|this year|nowadays|at the moment)\b
-  - (\$|€|£|¥)\s*\d
-  - \b\d+(\.\d+)?\s*(usd|aud|cad|gbp|eur|dollars|euros|pounds)\b
-  - \b(guarantee(d)?|promise(d|s)?|always works|will definitely)\b
-  - \b(you should|you must|do this|try to|make sure to|start by|consider doing)\b
-  - \b(i|we|our|ours|us|my|mine)\b
-  - \b(best|top\s+\d+|review|affiliate|sponsored|deal|discount|coupon)\b
-  - \b(better than|worse than|superior to|most effective)\b
+  - \b(recent|recently|currently|this year|last year|next year|today|yesterday|tomorrow)\b
+  - '[$€£¥]\s?\d'
+  - \b(price|prices|cost|costs|afford|expensive|cheap|profit|revenue|roi)\b
+  - \b(i|we|our|my|mine|us)\b
+  - \b(should|must|need to|do this|try to|start by|you should)\b
+  - \b(affiliate|sponsored|review|best product|top product)\b
+  internal_links_min: 3

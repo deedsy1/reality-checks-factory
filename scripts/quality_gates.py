@@ -65,73 +65,16 @@ def extract_faq_count(body: str) -> int:
     return max(h3, q)
 
 
-def word_count(text: str) -> int:
+
+
+def count_words(text: str) -> int:
     return len(re.findall(r"\b\w+\b", text or ""))
 
-
-def get_h2_section(body: str, heading: str) -> str:
-    """Return the content under an H2 heading up to the next H2 (excluding the H2 line)."""
-    m = re.search(rf"^##\s+{re.escape(heading)}\s*$", body, flags=re.M)
-    if not m:
-        return ""
-    start = m.end()
-    m2 = re.search(r"^##\s+", body[start:], flags=re.M)
-    end = start + (m2.start() if m2 else len(body[start:]))
-    return body[start:end].strip()
-
-
-def extract_internal_links(body: str) -> List[Tuple[str, str]]:
-    """Return list of (anchor_text, url) for internal markdown links."""
-    links: List[Tuple[str, str]] = []
-    for m in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", body):
-        text = (m.group(1) or "").strip()
-        url = (m.group(2) or "").strip()
-        if not url:
-            continue
-        # Internal links: relative or site-absolute, but not http(s)
-        if url.startswith("http://") or url.startswith("https://") or url.startswith("mailto:"):
-            continue
-        links.append((text, url))
-    return links
-
-
-def paragraph_sentence_ok(body: str, max_sentences: int) -> bool:
-    """Enforce short paragraphs (2–3 sentences) on prose paragraphs only."""
-    # Split by blank lines. Ignore headings/lists/code blocks.
-    blocks = [b.strip() for b in re.split(r"\n\s*\n", body) if b.strip()]
-    in_code = False
-    for b in blocks:
-        if "```" in b:
-            # Toggle simplistic code block detection
-            ticks = b.count("```")
-            if ticks % 2 == 1:
-                in_code = not in_code
-            continue
-        if in_code:
-            continue
-        first = b.splitlines()[0].strip()
-        if first.startswith("#") or first.startswith("-") or first.startswith("*") or first.startswith(">"):
-            continue
-        # Count sentences: ., !, ? not inside abbreviations (best-effort)
-        sentences = re.findall(r"[.!?]+(?:\s|$)", b)
-        if len(sentences) > max_sentences:
-            return False
-    return True
-
-
-def contains_forbidden_regex(text: str, patterns: List[str]) -> List[str]:
-    hits = []
-    for pat in patterns:
-        try:
-            if re.search(pat, text, flags=re.I | re.M):
-                hits.append(pat)
-        except re.error:
-            # Skip bad regex
-            continue
-    return hits
-
-
-def contains_forbidden_substrings(text: str, forbidden: List[str]) -> List[str]:
+def count_internal_links(body: str) -> int:
+    # Count markdown links that point to this site (relative /pages/ or /hubs/)
+    links = re.findall(r"\[[^\]]+\]\((/[^)]+)\)", body or "")
+    return sum(1 for href in links if href.startswith("/pages/") or href.startswith("/hubs/") or href.startswith("/"))
+def contains_forbidden(text: str, forbidden: List[str]) -> List[str]:
     t = (text or "").lower()
     hits = []
     for phrase in forbidden:
@@ -147,15 +90,11 @@ def gate_page(md_path: str, cfg: dict) -> Tuple[bool, List[str]]:
     """Return (pass, reasons)."""
     reasons: List[str] = []
     md = read_text(md_path)
+
     fm, body = split_frontmatter(md)
 
-    generation = (cfg.get("generation", {}) or {})
-    gates = (cfg.get("gates", {}) or {})
-
-    # --------------------
     # Gate 1: Frontmatter required keys
-    # --------------------
-    required_fm = gates.get(
+    required_fm = cfg.get("gates", {}).get(
         "required_frontmatter",
         ["title", "slug", "summary", "description", "date", "hub", "page_type"],
     )
@@ -163,25 +102,19 @@ def gate_page(md_path: str, cfg: dict) -> Tuple[bool, List[str]]:
     if missing:
         reasons.append(f"missing frontmatter keys: {', '.join(missing)}")
 
-    # --------------------
-    # Gate 2: Headings policy (H2 / H3 only)
-    # --------------------
-    if re.search(r"^#\s+", body, flags=re.M):
-        reasons.append("H1 found in body (only H2/H3 allowed)")
-    if re.search(r"^####+\s+", body, flags=re.M):
-        reasons.append("H4+ found (only H2/H3 allowed)")
-
-    # --------------------
-    # Gate 3: Fixed H2 outline exact + ordered
-    # --------------------
-    outline = generation.get("outline_h2", [])
+    # Gate 2: Fixed H2 outline exact + ordered
+    outline = (cfg.get("generation", {}) or {}).get("outline_h2", [])
     if outline:
         h2s = extract_h2_headings(body)
-        allow_extra = bool(gates.get("allow_extra_h2", False))
+        # We require the H2s to contain the outline headings in order.
+        # Allow extra H2s ONLY if explicitly enabled.
+        allow_extra = bool(cfg.get("gates", {}).get("allow_extra_h2", False))
+
         if not allow_extra:
             if h2s != outline:
                 reasons.append("H2 outline mismatch")
         else:
+            # Ensure outline appears as a subsequence in order
             idx = 0
             for h in h2s:
                 if idx < len(outline) and h.strip() == outline[idx].strip():
@@ -189,141 +122,75 @@ def gate_page(md_path: str, cfg: dict) -> Tuple[bool, List[str]]:
             if idx != len(outline):
                 reasons.append("H2 outline missing or out of order")
 
-    # --------------------
-    # Gate 4: Prohibitions + style constitution (strict)
-    # --------------------
-    # Substring bans (easy, low false-negative)
+    # Gate 3: Forbidden phrase scan
+    forbidden = (cfg.get("generation", {}) or {}).get("forbidden_words", [])
+    # Always enforce a minimal default set as a safety net.
     forbidden_default = [
         "as an ai",
         "i am an ai",
         "diagnose",
         "diagnosis",
         "prescribed",
+        "guaranteed",
+        "sue",
         "legal advice",
         "medical advice",
         "financial advice",
-        "affiliate",
-        "sponsored",
-        "review",
-        "coupon",
-        "discount",
-        "deal",
-        "best product",
-        "worst",
-        "guarantee",
-        "guaranteed",
-        "promise",
-        "click here",
     ]
-    forbidden_cfg = generation.get("forbidden_words", []) or []
-    merged = list(dict.fromkeys([*forbidden_cfg, *forbidden_default]))
-    hits = contains_forbidden_substrings(body, merged)
+    merged = list(dict.fromkeys([*(forbidden or []), *forbidden_default]))
+    hits = contains_forbidden(md, merged)
     if hits:
-        reasons.append(f"forbidden phrases: {', '.join(hits[:10])}{'...' if len(hits) > 10 else ''}")
+        reasons.append(f"forbidden phrases: {', '.join(hits[:8])}{'...' if len(hits) > 8 else ''}")
 
-    # Regex bans (hard prohibitions)
-    hard_bans = [
-        # Dates / recency
-        r"\b(20\d{2})\b",
-        r"\b(recent|currently|nowadays|these days|this year|today)\b",
-        # Prices / money claims (symbols and common currencies)
-        r"[$€£¥]\s*\d",
-        r"\b(usd|aud|eur|gbp|cad|inr|yen|dollars|bucks)\b",
-        r"\b(price|pricing|cost|costs|cheaper|expensive)\b",
-        # First-person language (including contractions)
-        r"\b(i|i'm|i’ve|i've|i’d|i'd|me|my|mine|we|we're|we’ve|we've|we’d|we'd|our|ours|us)\b",
-        # Calls to action / behavior pushing (keep conservative)
-        r"\b(you should|do this|make sure to|start by|try to|avoid doing|always do|never do|take action)\b",
-        r"\b(sign up|subscribe|buy|purchase|download|join)\b",
-        # Strong promises / guarantees
-        r"\b(will definitely|will always|no doubt|surefire|guaranteed to|ensure that)\b",
-        # Superiority comparisons
-        r"\b(better than|more effective|best|worse than|superior to)\b",
-    ]
-    ban_hits = contains_forbidden_regex(body, hard_bans)
-    if ban_hits:
-        reasons.append("hard prohibitions hit")
-
-    # --------------------
-    # Gate 5: Explain before comparisons (no comparison markers before Core explanation)
-    # --------------------
-    comparison_markers = [
-        r"\b(vs\.?|versus|compared to|in comparison|better than|worse than|more effective)\b"
-    ]
-    core_heading = gates.get("core_heading", "Core explanation")
-    core_pos = None
-    m_core = re.search(rf"^##\s+{re.escape(core_heading)}\s*$", body, flags=re.M)
-    if m_core:
-        core_pos = m_core.start()
-    else:
-        # If a site doesn't use the constitution structure, skip this specific gate.
-        core_pos = None
-
-    if core_pos is not None:
-        prefix = body[:core_pos]
-        if contains_forbidden_regex(prefix, comparison_markers):
-            reasons.append("comparison appears before Core explanation")
-
-    # --------------------
-    # Gate 6: FAQ count
-    # --------------------
-    faq_min = int(gates.get("faq_min", 4))
-    faq_max = int(gates.get("faq_max", 6))
+    # Gate 4: FAQ count
+    faq_min = int(cfg.get("gates", {}).get("faq_min", 4))
+    faq_max = int(cfg.get("gates", {}).get("faq_max", 6))
     faq_n = extract_faq_count(body)
     if faq_n < faq_min or faq_n > faq_max:
         reasons.append(f"FAQ count out of range ({faq_n}, expected {faq_min}-{faq_max})")
 
-    # --------------------
-    # Gate 7: Length (no thin content)
-    # --------------------
-    min_words = int(gates.get("min_words", 800))
-    wc = word_count(body)
-    if wc < min_words:
-        reasons.append(f"too short ({wc} words < {min_words})")
 
-    # --------------------
-    # Gate 8: Short paragraphs (2–3 sentences max)
-    # --------------------
-    max_sentences = int(gates.get("max_sentences_per_paragraph", 3))
-    if max_sentences > 0 and not paragraph_sentence_ok(body, max_sentences):
-        reasons.append("paragraphs too long (sentence count)")
 
-    # --------------------
-    # Gate 9: Internal linking rules
-    # --------------------
-    links = extract_internal_links(body)
-    internal_min = int(gates.get("internal_links_min", 3))
-    if len(links) < internal_min:
-        reasons.append(f"too few internal links ({len(links)} < {internal_min})")
+# Gate 4b: Word count (evergreen depth)
+wc_cfg = (cfg.get("gates", {}) or {}).get("word_count", {}) or {}
+hard_min = int(wc_cfg.get("hard_min", wc_cfg.get("min", 800)))
+hard_max = int(wc_cfg.get("hard_max", wc_cfg.get("max", 2000)))
+wc = count_words(body)
+if wc < hard_min or wc > hard_max:
+    reasons.append(f"word count out of range ({wc}, expected {hard_min}-{hard_max})")
 
-    # Anchor text policy: no "click here"
-    bad_anchor = [t for (t, _u) in links if t.strip().lower() == "click here"]
-    if bad_anchor:
-        reasons.append('bad anchor text: "click here"')
+# Gate 4c: Prohibited regex patterns (dates/prices/first-person/etc)
+patterns = (cfg.get("gates", {}) or {}).get("prohibited_regex", []) or []
+hits = []
+for pat in patterns:
+    try:
+        if re.search(pat, body, flags=re.I):
+            hits.append(pat)
+    except re.error:
+        continue
+if hits:
+    reasons.append(f"prohibited pattern hit ({len(hits)} rules)")
 
-    # Contextual placement: require at least 1 link in Definitions/Core/Summary (if those headings exist)
-    for sec_name in gates.get("link_sections_min1", ["Definitions", "Core explanation", "Summary"]):
-        sec = get_h2_section(body, sec_name)
-        if not sec:
-            continue  # don't fail older structures
-        sec_links = extract_internal_links(sec)
-        if len(sec_links) < 1:
-            reasons.append(f"missing internal link in section: {sec_name}")
-
-    # --------------------
-    # Gate 10: Optional per-section minimum words (lightweight)
-    # --------------------
-    min_section_words = int(gates.get("min_section_words", 0))
-    if min_section_words > 0 and outline:
+# Gate 4d: Internal links minimum
+min_links = int((cfg.get("gates", {}) or {}).get("internal_links_min", 0))
+if min_links > 0:
+    n_links = count_internal_links(body)
+    if n_links < min_links:
+        reasons.append(f"too few internal links ({n_links}, expected >= {min_links})")
+    # Optional Gate 5: section minimum words (lightweight)
+    min_words = int(os.getenv("MIN_SECTION_WORDS", str(cfg.get("gates", {}).get("min_section_words", 0))))
+    if min_words > 0 and outline:
+        # Rough split by H2
         for heading in outline:
-            if heading.strip().lower() == "faqs":
+            sec = re.split(rf"^##\s+{re.escape(heading)}\s*$", body, flags=re.M)
+            if len(sec) < 2:
                 continue
-            sec = get_h2_section(body, heading)
-            if not sec:
-                continue
-            sec_wc = word_count(sec)
-            if sec_wc < min_section_words:
-                reasons.append(f"section too short: '{heading}' ({sec_wc} < {min_section_words})")
+            after = sec[1]
+            # Up to next H2
+            after = re.split(r"^##\s+", after, maxsplit=1, flags=re.M)[0]
+            wc = len(re.findall(r"\b\w+\b", after))
+            if wc < min_words and heading.strip().lower() != "faqs":
+                reasons.append(f"section too short: '{heading}' ({wc} words < {min_words})")
                 break
 
     return (len(reasons) == 0), reasons

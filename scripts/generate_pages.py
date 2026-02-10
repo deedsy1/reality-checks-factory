@@ -146,22 +146,29 @@ def call_kimi(system: str, prompt: str):
 
     raise RuntimeError(last_err or "API retries exhausted")
 
-def build_prompts(site: dict) -> tuple[str, str]:
-    generation = site.get("generation", {}) or {}
-    brand = (site.get("brand") or site.get("site_name") or "Evergreen Factory").strip()
+def build_prompts(cfg: dict):
+    # data/site.yaml is the single contract.
+    site = cfg.get("site", {}) if isinstance(cfg, dict) else {}
+    taxonomy = cfg.get("taxonomy", {}) if isinstance(cfg, dict) else {}
+    generation = cfg.get("generation", {}) if isinstance(cfg, dict) else {}
 
-    hubs = generation.get("hubs") or ["work-career", "money-stress", "burnout-load", "milestones", "social-norms"]
-    page_types = generation.get("page_types") or ["is-it-normal", "checklist", "red-flags", "myth-vs-reality", "explainer"]
+    brand = site.get("brand") or site.get("title") or "Reality Checks"
+    hubs = [h.get("id") for h in (taxonomy.get("hubs") or []) if isinstance(h, dict) and h.get("id")] or [
+        "work-career", "money-stress", "burnout-load", "milestones", "social-norms"
+    ]
+    page_types = generation.get("page_types") or [
+        "is-it-normal", "checklist", "red-flags", "myth-vs-reality", "explainer"
+    ]
 
-    forbidden_words = generation.get("forbidden_words") or []
-    forbidden_str = ", ".join(forbidden_words) if forbidden_words else "diagnose, diagnosis, prescribed, guaranteed, sue"
+    forbidden = generation.get("forbidden_words") or []
+    forbidden_str = ", ".join(forbidden) if forbidden else "diagnose, diagnosis, prescribed, guaranteed, sue"
 
     outline = generation.get("outline_h2") or [
-        "Intro",
-        "Definitions",
-        "Core explanation",
-        "Clarifying examples",
-        "Summary",
+        "What this feeling usually means",
+        "Common reasons",
+        "What makes it worse",
+        "What helps (non-advice)",
+        "When it might signal a bigger issue",
         "FAQs",
     ]
     outline_md = "\n".join([f"## {h}" for h in outline])
@@ -171,57 +178,30 @@ def build_prompts(site: dict) -> tuple[str, str]:
     if closing_templates:
         closing_hint = "Choose ONE closing reassurance line in a similar style to these:\n- " + "\n- ".join(closing_templates[:3])
 
-    system = f"""You write neutral, evergreen, encyclopedic explanations for the site "{brand}".
-No medical, legal, or financial advice. No promises or guarantees. No first-person language.
-Avoid dates, recency claims, prices, brands, and product recommendations.
+    system = f"""You write calm, reassuring evergreen content for the site "{brand}".
+NO medical, legal, or financial advice. Avoid diagnosing. Avoid giving instructions like a professional.
 Forbidden words/phrases: {forbidden_str}.
 Return JSON only. Do not wrap in markdown fences.
 """
 
     page_prompt = f"""Return ONLY JSON with:
 title
-summary (one sentence, neutral reassurance; also used as meta description)
+summary (one sentence reassurance; also used as meta description)
 description (<= 160 chars, no quotes)
 hub (one of: { " | ".join(hubs) })
 page_type (one of: { " | ".join(page_types) })
-closing_reassurance (one short, gentle line; NOT advice, no imperative verbs)
-body_md (markdown only; MUST include the exact H2 headings below)
+closing_reassurance (one short, gentle line; NOT advice)
+body_md (markdown only; must include the exact H2 headings below)
 
-Use these H2 sections exactly (H2/H3 only; no H1/H4+):
+Use these H2 sections exactly:
 {outline_md}
 
-Hard prohibitions (never):
-- No dates or recency ("recent", "currently", years).
-- No prices/costs/currency amounts.
-- No medical/legal/financial advice.
-- No guarantees or promises.
-- No first-person ("I", "we", "our").
-- No calls-to-action ("you should", "do this", "try to", "start by", "make sure").
-- No affiliate language, product reviews, or brand-led claims.
-- No superiority comparisons ("better than", "best", "most effective").
-
-Required style:
-- Neutral, beginner-friendly tone. Explain concepts before comparisons.
-- Short paragraphs (2–3 sentences max).
-- No hype, no fear framing.
-
-Structural requirements:
-- Provide an intro paragraph BEFORE the first H2 (what the topic is and why it exists).
-- Definitions section must define key terms neutrally.
-- Core explanation must explain how/why/differences.
-- Clarifying examples must be non-personal, generic situations.
-- Summary must be neutral (no advice) and evergreen.
-
-Linking requirements:
-- Include at least 3 INTERNAL links in body_md using markdown like:
-  [Descriptive anchor text](/pages/some-slug/)
-  [Another page](/hubs/some-hub/)
-- Never use "click here".
-
-FAQs:
-- 4–6 short Q&As using H3 headings inside the FAQs section.
-
-Output rules:
+Rules:
+- Keep tone grounded and human, not clinical.
+- No "diagnose/diagnosis/prescribed/guaranteed/sue".
+- FAQs: 4-6 Q&As (short).
+- Word count: aim for {wc_target_min}-{wc_target_max} words; hard minimum {wc_hard_min}; hard maximum {wc_hard_max}.
+- Include at least {internal_links_min} internal links to other relevant pages on this site using Markdown links (no "click here").
 - Do not include the closing reassurance inside body_md; put it in closing_reassurance.
 {closing_hint}
 """
@@ -274,34 +254,6 @@ def iter_content_pages(root_dir: str) -> list[str]:
             pages.append(os.path.join(dirpath, "index.md"))
     return pages
 
-
-def pick_internal_link_suggestions(site: dict, target_hub: str, k: int = 10) -> list[str]:
-    """
-    Returns a list of markdown-friendly internal link suggestions like:
-      - [Title](/pages/slug/)
-      - [Hub page](/hubs/hub/)
-    We keep this lightweight + deterministic enough to reduce hallucinated links.
-    """
-    pages = []
-    for slug, md_path in iter_content_pages(CONTENT_ROOT):
-        fm, _body = read_markdown_frontmatter(md_path)
-        title = str((fm.get("title") or slug)).strip()
-        hub = str(fm.get("hub") or "").strip()
-        pages.append((slug, title, hub))
-
-    # Prefer same-hub pages, but fall back to any
-    same = [p for p in pages if p[2] == target_hub]
-    pool = same if len(same) >= 3 else pages
-    random.shuffle(pool)
-
-    picks = pool[: max(0, k - 1)]
-    links = [f"- [{title}](/pages/{slug}/)" for slug, title, _hub in picks]
-
-    # Include the hub landing page too
-    if target_hub:
-        links.insert(0, f"- [More on {target_hub.replace('-', ' ')}](/hubs/{target_hub}/)")
-
-    return links
 def backfill_page_metadata(content_root: str, contract_hash: str) -> int:
     updated = 0
     for path in iter_content_pages(content_root):
@@ -397,8 +349,6 @@ def generate_one_page(title: str, system: str, page_prompt: str, cfg: dict, pinn
         extra += f"\nHub (must use exactly): {pinned_hub}"
     if pinned_page_type:
         extra += f"\nPage type (must use exactly): {pinned_page_type}"
-    if internal_links:
-        extra += "\n\nInternal links (use at least 3; markdown only; no \"click here\"):\n" + "\n".join(internal_links)
 
     try:
         raw = call_kimi(system, f"{page_prompt}\n\nTitle: {title}{extra}")
@@ -498,7 +448,6 @@ def main():
             attempts += 1
             print(f"[regen] {slug}: {title}")
 
-            internal_links = pick_internal_link_suggestions(cfg, hub, k=10)
             ok, data = generate_one_page(
                 title=title,
                 system=system,
@@ -506,7 +455,6 @@ def main():
                 cfg=cfg,
                 pinned_hub=hub,
                 pinned_page_type=page_type,
-                internal_links=internal_links,
             )
             if not ok:
                 continue
@@ -570,14 +518,6 @@ def main():
         pinned_type = ""
         if isinstance(plan_item, dict):
             pinned_hub = str(plan_item.get("hub") or "").strip()
-        # If plan doesn't pin a hub/type, choose one so linking + gates stay consistent
-        hubs = (cfg.get("generation", {}) or {}).get("hubs") or ["work-career","money-stress","burnout-load","milestones","social-norms"]
-        types = (cfg.get("generation", {}) or {}).get("page_types") or ["is-it-normal","checklist","red-flags","myth-vs-reality","explainer"]
-        if not pinned_hub:
-            pinned_hub = random.choice(hubs)
-        if not pinned_type:
-            pinned_type = random.choice(types)
-        internal_links = pick_internal_link_suggestions(cfg, pinned_hub, k=10)
             pinned_type = str(plan_item.get("page_type") or "").strip()
 
         ok, data = generate_one_page(
@@ -587,7 +527,6 @@ def main():
             cfg=cfg,
             pinned_hub=pinned_hub,
             pinned_page_type=pinned_type,
-            internal_links=internal_links,
         )
         if not ok:
             deletes += 1
